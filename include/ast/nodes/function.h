@@ -1,6 +1,7 @@
 #ifndef INCLUDE_AST_NODES_FUNCTION_H
 #define INCLUDE_AST_NODES_FUNCTION_H
 
+#include <stdlib.h>
 #include "ast/ast.h"
 
 struct bae_function {
@@ -26,6 +27,13 @@ struct bae_function {
 static inline void bae_function_init(struct bae_function *f, char *name)
 {
     *f = (struct bae_function)BAE_FUNCTION_INIT(*f, name);
+}
+
+static inline struct bae_function *create_bae_function(char *name)
+{
+    struct bae_function *func = malloc(sizeof(*func));
+    bae_function_init(func, name);
+    return func;
 }
 
 #endif

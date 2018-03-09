@@ -1,0 +1,9 @@
+
+int main() {
+    if (0)
+        return 0;
+
+    while (1)
+        return 20;
+
+}

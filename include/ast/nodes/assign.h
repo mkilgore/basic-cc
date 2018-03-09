@@ -1,6 +1,7 @@
 #ifndef INCLUDE_AST_NODES_ASSIGN_H
 #define INCLUDE_AST_NODES_ASSIGN_H
 
+#include <stdlib.h>
 #include "ast/ast.h"
 
 struct bae_assign {
@@ -17,6 +18,13 @@ struct bae_assign {
 static inline void bae_assign_init(struct bae_assign *n)
 {
     *n = (struct bae_assign)BAE_ASSIGN_INIT(*n);
+}
+
+static inline struct bae_assign *create_bae_assign(void)
+{
+    struct bae_assign *assign = malloc(sizeof(*assign));
+    bae_assign_init(assign);
+    return assign;
 }
 
 #endif

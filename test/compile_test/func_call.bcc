@@ -1,0 +1,8 @@
+
+int main2() {
+
+}
+
+int main() {
+    main2();
+}

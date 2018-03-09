@@ -1,0 +1,29 @@
+
+int putchar(int c);
+
+int main2() {
+    int blah;
+
+    return 5;
+}
+
+int main4() {
+    int blah4 = 97;
+    return blah4;
+}
+
+int main(int argc, int argv) {
+    int i = 26;
+
+    while (i) {
+        putchar(64 + i);
+        i = i - 1;
+    }
+
+    putchar(32);
+    putchar(main4());
+    putchar(10);
+
+    return 0;
+}
+

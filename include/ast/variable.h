@@ -2,6 +2,7 @@
 #define INCLUDE_AST_VARIABLE_H
 
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "ast/ast.h"
 #include "list.h"
@@ -26,6 +27,13 @@ struct bcc_ast_variable {
 static inline void bcc_ast_variable_init(struct bcc_ast_variable *var)
 {
     *var = (struct bcc_ast_variable)BCC_AST_VARIABLE_INIT(*var);
+}
+
+static inline struct bcc_ast_variable *create_bcc_ast_variable(void)
+{
+    struct bcc_ast_variable *var = malloc(sizeof(*var));
+    bcc_ast_variable_init(var);
+    return var;
 }
 
 #endif

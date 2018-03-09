@@ -1,0 +1,8 @@
+
+int main() {
+    int var;
+
+    var = 2;
+    var = 5;
+    var = 2 + 5;
+}

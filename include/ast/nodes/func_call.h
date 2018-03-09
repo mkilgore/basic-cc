@@ -1,6 +1,7 @@
 #ifndef INCLUDE_AST_NODES_FUNC_CALL_H
 #define INCLUDE_AST_NODES_FUNC_CALL_H
 
+#include <stdlib.h>
 #include "ast/ast.h"
 
 struct bae_func_call {
@@ -18,6 +19,13 @@ struct bae_func_call {
 static inline void bae_func_call_init(struct bae_func_call *b)
 {
     *b = (struct bae_func_call)BAE_FUNC_CALL_INIT(*b);
+}
+
+static inline struct bae_func_call *create_bae_func_call(void)
+{
+    struct bae_func_call *call = malloc(sizeof(*call));
+    bae_func_call_init(call);
+    return call;
 }
 
 #endif

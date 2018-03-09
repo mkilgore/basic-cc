@@ -11,17 +11,23 @@ int main(int argc, char **argv)
 
     if (argc < 2) {
         printf("Please provide filename to parse\n");
-        printf("%s <filename>\n", argv[0]);
+        printf("%s <filename> <output>\n", argv[0]);
         return 0;
     }
 
     FILE *in = fopen(argv[1], "r");
+    FILE *out = stdout;
+
+    if (argc == 3)
+        out = fopen(argv[2], "w+");
 
     int ret = bcc_ast_parse(&ast, in);
 
-    bcc_ast_out(&ast, stdout, BCC_AST_OUT_ASM_X86);
-    //bcc_ast_out(&ast, stdout, BCC_AST_OUT_TEXT);
-    //bcc_ast_out(&ast, stdout, BCC_AST_OUT_DUMP_AST);
+    if (!ret) {
+        //bcc_ast_out(&ast, out, BCC_AST_OUT_ASM_X86);
+        //bcc_ast_out(&ast, out, BCC_AST_OUT_TEXT);
+        bcc_ast_out(&ast, out, BCC_AST_OUT_DUMP_AST);
+    }
 
     return 0;
 }

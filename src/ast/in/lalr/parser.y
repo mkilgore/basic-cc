@@ -10,27 +10,7 @@
 
 #include "ast.h"
 
-void yyerror(struct bcc_ast *ast, struct bcc_parser_state *state, const char *str);
-
 #define YYERROR_VERBOSE
-
-static inline struct bae_literal_number *create_bae_literal_number(int val);
-static inline struct bae_binary_op *create_bae_binary_op(enum bcc_ast_binary_op op);
-static inline struct bae_expression_stmt *create_bae_expression_stmt(void);
-static inline struct bae_if *create_bae_if(void);
-static inline struct bae_block *create_bae_block(void);
-static inline void bae_block_add_entry(struct bae_block *block, struct bcc_ast_entry *ent);
-static inline struct bae_function *create_bae_function(char *name);
-static inline struct bae_return *create_bae_return(void);
-static inline struct bae_var_load *create_bae_var_load(void);
-static inline struct bae_var_store *create_bae_var_store(void);
-static inline struct bae_assign *create_bae_assign(void);
-static inline struct bae_func_call *create_bae_func_call(void);
-static inline struct bae_while *create_bae_while(void);
-static inline struct bcc_ast_variable *bcc_ast_find_variable(struct bae_block *, const char *name);
-static inline void bcc_ast_add_function(struct bcc_ast *ast, struct bae_function *func);
-static inline struct bcc_ast_variable *create_bcc_ast_variable(void);
-static inline struct bae_function *bcc_ast_find_function(struct bcc_ast *ast, const char *name);
 
 struct temp_list {
     list_head_t head;   
@@ -45,12 +25,46 @@ static inline void temp_list_init(struct temp_list *t)
 {
     *t = (struct temp_list)TEMP_LIST_INIT(*t);
 }
+
 %}
+
+%code requires {
+typedef struct YYLTYPE {
+  int first_line;
+  int first_column;
+  int last_line;
+  int last_column;
+  off_t file_line_offset;
+} YYLTYPE;
+# define YYLTYPE_IS_DECLARED 1 /* alert the parser that we have our own definition */
+
+# define YYLLOC_DEFAULT(Current, Rhs, N)                                   \
+    do                                                                     \
+      if (N)                                                               \
+        {                                                                  \
+          (Current).first_line       = YYRHSLOC (Rhs, 1).first_line;       \
+          (Current).first_column     = YYRHSLOC (Rhs, 1).first_column;     \
+          (Current).last_line        = YYRHSLOC (Rhs, N).last_line;        \
+          (Current).last_column      = YYRHSLOC (Rhs, N).last_column;      \
+          (Current).file_line_offset = YYRHSLOC (Rhs, 1).file_line_offset; \
+        }                                                                  \
+      else                                                                 \
+        { /* empty RHS */                                                  \
+          (Current).first_line   = (Current).last_line   =                 \
+            YYRHSLOC (Rhs, 0).last_line;                                   \
+          (Current).first_column = (Current).last_column =                 \
+            YYRHSLOC (Rhs, 0).last_column;                                 \
+          (Current).file_line_offset = YYRHSLOC(Rhs, 0).file_line_offset;  \
+        }                                                                  \
+    while (0)
+}
 
 %code provides {
 #define YY_DECL \
-    int yylex(struct bcc_ast *ast, struct bcc_parser_state *state)
+    int yylex(YYSTYPE *yylval_param, YYLTYPE *yylloc_param, struct bcc_ast *ast, struct bcc_parser_state *state, yyscan_t yyscanner)
 YY_DECL;
+
+void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yyscan_t, const char *str);
 }
 
 %union {
@@ -61,10 +75,15 @@ YY_DECL;
     struct temp_list *temp_list;
 }
 
+%define api.pure full
+
 %parse-param { struct bcc_ast *ast } 
 %lex-param { struct bcc_ast *ast } 
 %parse-param { struct bcc_parser_state *state }
-%lex-param { struct bcc_parser_state *state } 
+%lex-param { struct bcc_parser_state *state }
+%parse-param { yyscan_t scanner }
+%lex-param { yyscan_t scanner }
+
 %locations
 
 %token <str> TOK_IDENT TOK_FUNCTION TOK_STRING
@@ -97,7 +116,7 @@ YY_DECL;
 lvalue
     : TOK_IDENT {
         struct bae_var_store *store = create_bae_var_store();
-        store->var = bcc_ast_find_variable(state->current_scope, $1);
+        store->var = bcc_ast_find_variable(ast, state->current_scope, $1);
         free($1);
         $$ = &store->ent;
     }
@@ -139,7 +158,11 @@ expression
     }
     | TOK_IDENT %prec "load" {
         struct bae_var_load *var = create_bae_var_load();
-        var->var = bcc_ast_find_variable(state->current_scope, $1);
+        var->var = bcc_ast_find_variable(ast, state->current_scope, $1);
+        if (!var->var) {
+            yyerror(&@1, ast, state, scanner, "Unknown variable name");
+            YYABORT;
+        }
         free($1);
         $$ = &var->ent;
     }
@@ -327,135 +350,41 @@ basic_cc_file
 
 %%
 
-static inline struct bae_literal_number *create_bae_literal_number(int val)
+static void display_invalid_token(YYLTYPE *loc, yyscan_t scanner)
 {
-    struct bae_literal_number *lit_num = malloc(sizeof(*lit_num));
-    bae_literal_number_init(lit_num, val);
-    return lit_num;
+    FILE *in = yyget_in(scanner);
+    off_t sav = ftell(in);
+
+    fseek(in, loc->file_line_offset, SEEK_SET);
+
+    char *buf = NULL;
+    size_t len = 0;
+    getline(&buf, &len, in);
+
+    fprintf(stderr, "%s", buf);
+    free(buf);
+
+    int i;
+    for (i = 0; i < loc->first_column; i++)
+        fputc(' ', stderr);
+
+    fputc('^', stderr);
+    i++;
+
+    for (; i < loc->last_column; i++)
+        fputc('-', stderr);
+
+    if (loc->last_column > loc->first_column)
+        fputc('^', stderr);
+
+    fputc('\n', stderr);
+
+    fseek(in, sav, SEEK_SET);
 }
 
-static inline struct bae_binary_op *create_bae_binary_op(enum bcc_ast_binary_op op)
+void yyerror(YYLTYPE *loc, struct bcc_ast *ast, struct bcc_parser_state *state, yyscan_t scanner, const char *str)
 {
-    struct bae_binary_op *bin_op = malloc(sizeof(*bin_op));
-    bae_binary_op_init(bin_op, op);
-    return bin_op;
-}
-
-static inline struct bae_expression_stmt *create_bae_expression_stmt(void)
-{
-    struct bae_expression_stmt *stmt = malloc(sizeof(*stmt));
-    bae_expression_stmt_init(stmt);
-    return stmt;
-}
-
-static inline struct bae_if *create_bae_if(void)
-{
-    struct bae_if *i = malloc(sizeof(*i));
-    bae_if_init(i);
-    return i;
-}
-
-static inline struct bae_block *create_bae_block(void)
-{
-    struct bae_block *block = malloc(sizeof(*block));
-    bae_block_init(block);
-    return block;
-}
-
-static inline void bae_block_add_entry(struct bae_block *block, struct bcc_ast_entry *ent)
-{
-    block->ent_count++;
-    list_add_tail(&block->entry_list, &ent->entry);
-}
-
-static inline struct bae_function *create_bae_function(char *name)
-{
-    struct bae_function *func = malloc(sizeof(*func));
-    bae_function_init(func, name);
-    return func;
-}
-
-static inline struct bae_return *create_bae_return(void)
-{
-    struct bae_return *ret = malloc(sizeof(*ret));
-    bae_return_init(ret);
-    return ret;
-}
-
-static inline struct bae_var_load *create_bae_var_load(void)
-{
-    struct bae_var_load *var = malloc(sizeof(*var));
-    bae_var_load_init(var);
-    return var;
-}
-
-static inline struct bae_var_store *create_bae_var_store(void)
-{
-    struct bae_var_store *var = malloc(sizeof(*var));
-    bae_var_store_init(var);
-    return var;
-}
-
-static inline struct bae_assign *create_bae_assign(void)
-{
-    struct bae_assign *assign = malloc(sizeof(*assign));
-    bae_assign_init(assign);
-    return assign;
-}
-
-static inline struct bae_func_call *create_bae_func_call(void)
-{
-    struct bae_func_call *call = malloc(sizeof(*call));
-    bae_func_call_init(call);
-    return call;
-}
-
-static inline struct bae_while *create_bae_while(void)
-{
-    struct bae_while *w = malloc(sizeof(*w));
-    bae_while_init(w);
-    return w;
-}
-
-static inline struct bcc_ast_variable *bcc_ast_find_variable(struct bae_block *scope, const char *name)
-{
-    struct bcc_ast_variable *var;
-    struct bae_block *current = scope;
-
-    for (current = scope; current; current = current->outer_block)
-        list_foreach_entry(&current->variable_list, var, block_entry)
-            if (strcmp(var->name, name) == 0)
-                return var;
-
-    return NULL;
-}
-
-static inline struct bae_function *bcc_ast_find_function(struct bcc_ast *ast, const char *name)
-{
-    struct bae_function *func;
-
-    list_foreach_entry(&ast->function_list, func, function_entry)
-        if (strcmp(func->name, name) == 0)
-            return func;
-
-    return NULL;
-}
-
-static inline void bcc_ast_add_function(struct bcc_ast *ast, struct bae_function *func)
-{
-    ast->function_count++;
-    list_add_tail(&ast->function_list, &func->function_entry);
-}
-
-static inline struct bcc_ast_variable *create_bcc_ast_variable(void)
-{
-    struct bcc_ast_variable *var = malloc(sizeof(*var));
-    bcc_ast_variable_init(var);
-    return var;
-}
-
-void yyerror(struct bcc_ast *ast, struct bcc_parser_state *state, const char *str)
-{
-    fprintf(stderr, "Parser error: %d: %s\n", yylloc.first_line, str);
+    fprintf(stderr, "Parser error: %s at:\n", str);
+    display_invalid_token(loc, scanner);
 }
 

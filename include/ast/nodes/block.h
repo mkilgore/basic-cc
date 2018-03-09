@@ -1,6 +1,7 @@
 #ifndef INCLUDE_AST_NODES_BLOCK_H
 #define INCLUDE_AST_NODES_BLOCK_H
 
+#include <stdlib.h>
 #include "ast/ast.h"
 
 struct bae_block {
@@ -21,6 +22,19 @@ struct bae_block {
 static inline void bae_block_init(struct bae_block *b)
 {
     *b = (struct bae_block)BAE_BLOCK(*b);
+}
+
+static inline struct bae_block *create_bae_block(void)
+{
+    struct bae_block *block = malloc(sizeof(*block));
+    bae_block_init(block);
+    return block;
+}
+
+static inline void bae_block_add_entry(struct bae_block *block, struct bcc_ast_entry *ent)
+{
+    block->ent_count++;
+    list_add_tail(&block->entry_list, &ent->entry);
 }
 
 #endif
