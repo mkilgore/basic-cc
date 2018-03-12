@@ -1,0 +1,63 @@
+
+int printf(char *, ...);
+
+int main() {
+    int var1 = 0;
+
+    var1 += 20;
+
+    if (var1 == 20)
+        printf("Case 1");
+
+    var1 -= 10;
+
+    if (var1 == 10)
+        printf("Case 2");
+
+    var1 *= 2;
+
+    if (var1 == 20)
+        printf("Case 3");
+
+    var1 /= 4;
+
+    if (var1 == 5)
+        printf("Case 4");
+
+    var1 %= 2;
+
+    if (var1 == 1)
+        printf("Case 5");
+
+    var1 %= 2;
+
+    if (var1 == 1)
+        printf("Case 5");
+
+    var1 <<= 3;
+
+    if (var1 == 8)
+        printf("Case 6");
+
+    var1 >>= 1;
+
+    if (var1 == 4)
+        printf("Case 7");
+
+    var1 |= 10;
+
+    if (var1 == 14)
+        printf("Case 8");
+
+    var1 &= 10;
+
+    if (var1 == 10)
+        printf("Case 9");
+
+    var1 ^= 128;
+
+    if (var1 == 118)
+        printf("Case 10");
+
+    return 0;
+}

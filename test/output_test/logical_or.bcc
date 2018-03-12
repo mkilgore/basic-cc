@@ -1,0 +1,29 @@
+
+int putchar(int c);
+int printf(char *s, ...);
+
+int func() {
+    printf("func()");
+    return 1;
+}
+
+int main() {
+    int val = 1;
+    int val2 = 0;
+
+    if (val || val2)
+        printf("Case 1");
+
+    if (1 || 0)
+        printf("Case 2");
+
+    if (1 || func())
+        printf("Case 3");
+    else
+        printf("Case 4");
+
+    if (0 || func())
+        printf("Case 5");
+
+    return 0;
+}

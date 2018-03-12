@@ -2,6 +2,7 @@
 #define INCLUDE_AST_NODES_FUNCTION_H
 
 #include <stdlib.h>
+#include <stdint.h>
 #include "ast/ast.h"
 
 struct bae_function {
@@ -10,14 +11,18 @@ struct bae_function {
     list_head_t local_variable_list;
     list_head_t param_list;
 
+    uint8_t has_ellipsis;
+
     char *name;
     struct bcc_ast_type *ret_type;
     struct bcc_ast_entry *block;
 };
 
+void bae_function_clear(struct bcc_ast_entry *);
+
 #define BAE_FUNCTION_INIT(e, nam) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_FUNCTION), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_FUNCTION, bae_function_clear), \
         .name = (nam), \
         .function_entry = LIST_NODE_INIT((e).function_entry), \
         .local_variable_list = LIST_HEAD_INIT((e).local_variable_list), \

@@ -9,9 +9,11 @@ struct bae_literal_number {
     int value;
 };
 
+void bae_literal_number_clear(struct bcc_ast_entry *);
+
 #define BAE_LITERAL_NUMBER_INIT(e, num) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_LITERAL_NUMBER), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_LITERAL_NUMBER, bae_literal_number_clear), \
         .value = (num), \
     }
 

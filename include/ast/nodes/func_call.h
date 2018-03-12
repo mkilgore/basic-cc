@@ -10,9 +10,11 @@ struct bae_func_call {
     struct bae_function *func;
 };
 
+void bae_func_call_clear(struct bcc_ast_entry *);
+
 #define BAE_FUNC_CALL_INIT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_FUNC_CALL), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_FUNC_CALL, bae_func_call_clear), \
         .param_list = LIST_HEAD_INIT((e).param_list), \
     }
 

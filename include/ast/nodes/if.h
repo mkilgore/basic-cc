@@ -11,9 +11,11 @@ struct bae_if {
     struct bcc_ast_entry *else_block;
 };
 
+void bae_if_clear(struct bcc_ast_entry *);
+
 #define BAE_IF_INIT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_IF), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_IF, bae_if_clear), \
     }
 
 static inline void bae_if_init(struct bae_if *i)

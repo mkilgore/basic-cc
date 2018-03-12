@@ -10,9 +10,11 @@ struct bae_while {
     struct bcc_ast_entry *block;
 };
 
+void bae_while_clear(struct bcc_ast_entry *);
+
 #define BAE_WHILE_INIT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_WHILE), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_WHILE, bae_while_clear), \
     }
 
 static inline void bae_while_init(struct bae_while *i)

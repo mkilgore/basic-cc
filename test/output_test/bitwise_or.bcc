@@ -1,0 +1,14 @@
+
+int putchar(int c);
+int printf(char *s, ...);
+
+int main() {
+    int val1 = 16;
+    int val2 = 32;
+
+    if ((val1 | val2) == 48)
+        printf("OR Correct");
+
+    return 0;
+}
+

@@ -1,0 +1,14 @@
+
+int putchar(int c);
+int printf(char *s, ...);
+
+int main() {
+    int val1 = 16;
+    int val2 = 48;
+
+    if ((val1 ^ val2) == 32)
+        printf("XOR correct");
+
+    return 0;
+}
+

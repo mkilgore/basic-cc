@@ -1,0 +1,17 @@
+
+int putchar(int c);
+int printf(char *s, ...);
+
+int main() {
+    int val = 138;
+    int reg = 556;
+
+    val = val >> 1;
+    printf("Val: %d", val);
+
+    reg = reg >> 2;
+    printf("Reg: %d", reg);
+
+    return 0;
+}
+

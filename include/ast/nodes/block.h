@@ -12,9 +12,11 @@ struct bae_block {
     list_head_t variable_list;
 };
 
+void bae_block_clear(struct bcc_ast_entry *);
+
 #define BAE_BLOCK(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_BLOCK), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_BLOCK, bae_block_clear), \
         .entry_list = LIST_HEAD_INIT((e).entry_list), \
         .variable_list = LIST_HEAD_INIT((e).variable_list), \
     }

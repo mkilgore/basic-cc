@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "util.h"
 #include "ast.h"
 
 struct gen_state {
@@ -17,6 +18,21 @@ static void gen_node_literal_number(struct gen_state *state, struct bcc_ast_entr
     fprintf(out, "    movl $%d, %%eax\n", lit_num->value);
 }
 
+static void gen_node_literal_string(struct gen_state *state, struct bcc_ast_entry *ent, FILE *out)
+{
+    struct bae_literal_string *lit_str = container_of(ent, struct bae_literal_string, ent);
+    int strid = state->next_label++;
+    char *esc = util_escape_str(lit_str->str);
+
+    fprintf(out, ".data\n");
+    fprintf(out, "str%d:\n", strid);
+    fprintf(out, ".asciz \"%s\"\n", esc);
+    fprintf(out, ".text\n");
+    fprintf(out, "    movl $str%d, %%eax\n", strid);
+
+    free(esc);
+}
+
 static void gen_node_var_load(struct gen_state *state, struct bcc_ast_entry *ent, FILE *out)
 {
     struct bae_var_load *load = container_of(ent, struct bae_var_load, ent);
@@ -29,9 +45,41 @@ static void gen_node_var_store(struct gen_state *state, struct bcc_ast_entry *en
     fprintf(out, "    movl %%eax, -%d(%%ebp)\n", store->var->loffset);
 }
 
+static void gen_node_logical_op(struct gen_state *state, struct bae_binary_op *op, FILE *out)
+{
+    int label = state->next_label++;
+    const char *jmp_op;
+    int result;
+
+    if (op->op == BCC_AST_BINARY_OP_LOGICAL_AND) {
+        jmp_op = "    je";
+        result = 1;
+    } else {
+        jmp_op = "    jne";
+        result = 0;
+    }
+
+    /* This implements the short-circuiting logic. */
+    gen_bcc_ast_entry(state, op->left, out);
+    fprintf(out, "    cmp $0, %%eax\n");
+    fprintf(out, "    %s .L_LOGICAL_OP%d\n", jmp_op, label);
+
+    gen_bcc_ast_entry(state, op->right, out);
+    fprintf(out, "    cmp $0, %%eax\n");
+    fprintf(out, "    %s .L_LOGICAL_OP%d\n", jmp_op, label);
+    fprintf(out, "    movl $%d, %%eax\n", result);
+
+    fprintf(out, ".L_LOGICAL_OP%d:\n", label);
+}
+
 static void gen_node_binary_op(struct gen_state *state, struct bcc_ast_entry *ent, FILE *out)
 {
     struct bae_binary_op *bin_op = container_of(ent, struct bae_binary_op, ent);
+
+    if (bin_op->op == BCC_AST_BINARY_OP_LOGICAL_AND || bin_op->op == BCC_AST_BINARY_OP_LOGICAL_OR) {
+        gen_node_logical_op(state, bin_op, out);
+        return ;
+    }
 
     gen_bcc_ast_entry(state, bin_op->left, out);
     fprintf(out, "    pushl %%eax\n");
@@ -56,6 +104,79 @@ static void gen_node_binary_op(struct gen_state *state, struct bcc_ast_entry *en
         fprintf(out, "    xchg %%eax, %%ebx\n");
         fprintf(out, "    cltd\n");
         fprintf(out, "    idivl %%ebx\n");
+        break;
+
+    case BCC_AST_BINARY_OP_MOD:
+        fprintf(out, "    xchg %%eax, %%ebx\n");
+        fprintf(out, "    cltd\n");
+        fprintf(out, "    idivl %%ebx\n");
+        fprintf(out, "    mov %%edx, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_SHIFTRIGHT:
+        fprintf(out, "    mov %%al, %%cl\n");
+        fprintf(out, "    shr %%cl, %%ebx\n");
+        fprintf(out, "    movl %%ebx, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_SHIFTLEFT:
+        fprintf(out, "    mov %%al, %%cl\n");
+        fprintf(out, "    shl %%cl, %%ebx\n");
+        fprintf(out, "    movl %%ebx, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_GREATER_THAN:
+        fprintf(out, "    cmpl %%eax, %%ebx\n");
+        fprintf(out, "    setg %%al\n");
+        fprintf(out, "    movsbl %%al, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_LESS_THAN:
+        fprintf(out, "    cmpl %%eax, %%ebx\n");
+        fprintf(out, "    setl %%al\n");
+        fprintf(out, "    movsbl %%al, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_GREATER_THAN_EQUAL:
+        fprintf(out, "    cmpl %%eax, %%ebx\n");
+        fprintf(out, "    setge %%al\n");
+        fprintf(out, "    movsbl %%al, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_LESS_THAN_EQUAL:
+        fprintf(out, "    cmpl %%eax, %%ebx\n");
+        fprintf(out, "    setle %%al\n");
+        fprintf(out, "    movsbl %%al, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_DOUBLEEQUAL:
+        fprintf(out, "    cmpl %%eax, %%ebx\n");
+        fprintf(out, "    sete %%al\n");
+        fprintf(out, "    movsbl %%al, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_NOT_EQUAL:
+        fprintf(out, "    cmpl %%eax, %%ebx\n");
+        fprintf(out, "    setne %%al\n");
+        fprintf(out, "    movsbl %%al, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_BITWISE_AND:
+        fprintf(out, "    and %%ebx, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_BITWISE_OR:
+        fprintf(out, "    or %%ebx, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_BITWISE_XOR:
+        fprintf(out, "    xor %%ebx, %%eax\n");
+        break;
+
+    case BCC_AST_BINARY_OP_LOGICAL_OR:
+    case BCC_AST_BINARY_OP_LOGICAL_AND:
+        /* Handled separately above */
+    case BCC_AST_BINARY_OP_MAX:
         break;
     }
 }
@@ -89,7 +210,7 @@ static void gen_node_func_call(struct gen_state *state, struct bcc_ast_entry *en
     struct bcc_ast_entry *entry;
     int param_count = 0;
 
-    list_foreach_entry(&call->param_list, entry, entry) {
+    list_foreach_entry_reverse(&call->param_list, entry, entry) {
         gen_bcc_ast_entry(state, entry, out);
         fprintf(out, "    pushl %%eax\n");
         param_count++;
@@ -145,6 +266,7 @@ static void gen_node_while(struct gen_state *state, struct bcc_ast_entry *ent, F
 
 void (*gen_entry_table[BCC_AST_NODE_MAX]) (struct gen_state *state, struct bcc_ast_entry *ent, FILE *) = {
     [BCC_AST_NODE_LITERAL_NUMBER] = gen_node_literal_number,
+    [BCC_AST_NODE_LITERAL_STRING] = gen_node_literal_string,
     [BCC_AST_NODE_VAR_LOAD] = gen_node_var_load,
     [BCC_AST_NODE_VAR_STORE] = gen_node_var_store,
     [BCC_AST_NODE_BINARY_OP] = gen_node_binary_op,
@@ -178,7 +300,7 @@ static void gen_bcc_ast_function(struct gen_state *state, struct bae_function *f
         fprintf(out, "    pushl %%ebp\n");
         fprintf(out, "    movl %%esp, %%ebp\n");
 
-        list_foreach_entry(&func->local_variable_list, var, func_entry) {
+        list_foreach_entry_reverse(&func->local_variable_list, var, func_entry) {
             local_var_count++;
             var->loffset = local_var_count * 4;
         }

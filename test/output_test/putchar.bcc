@@ -1,0 +1,14 @@
+
+int putchar(int c);
+
+int main(int argc, int argv) {
+    int i = 26;
+
+    while (i) {
+        putchar(64 + i);
+        i = i - 1;
+    }
+
+    return 0;
+}
+

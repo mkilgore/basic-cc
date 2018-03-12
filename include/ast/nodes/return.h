@@ -9,9 +9,11 @@ struct bae_return {
     struct bcc_ast_entry *ret_value;
 };
 
+void bae_return_clear(struct bcc_ast_entry *);
+
 #define BAE_RETURN_INIT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_RETURN), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_RETURN, bae_return_clear), \
     }
 
 static inline void bae_return_init(struct bae_return *b)

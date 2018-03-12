@@ -9,9 +9,11 @@ struct bae_literal_string {
     char *str;
 };
 
+void bae_literal_string_clear(struct bcc_ast_entry *);
+
 #define BAE_LITERAL_STRING_INIT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_LITERAL_STRING), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_LITERAL_STRING, bae_literal_string_clear), \
     }
 
 static inline void bae_literal_string_init(struct bae_literal_string *n)

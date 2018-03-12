@@ -6,6 +6,7 @@
 #include "ast/ast.h"
 
 #include "ast/nodes/binary_op.h"
+#include "ast/nodes/unary_op.h"
 #include "ast/nodes/literal_number.h"
 #include "ast/nodes/literal_string.h"
 #include "ast/nodes/expression_stmt.h"
@@ -18,5 +19,6 @@
 #include "ast/nodes/assign.h"
 #include "ast/nodes/func_call.h"
 #include "ast/nodes/while.h"
+#include "ast/nodes/cast.h"
 
 #endif

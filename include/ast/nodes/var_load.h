@@ -9,9 +9,11 @@ struct bae_var_load {
     struct bcc_ast_variable *var;
 };
 
+void bae_var_load_clear(struct bcc_ast_entry *);
+
 #define BAE_VAR_LOAD_INIT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_VAR_LOAD), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_VAR_LOAD, bae_var_load_clear), \
     }
 
 static inline void bae_var_load_init(struct bae_var_load *n)

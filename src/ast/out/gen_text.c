@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "util.h"
 #include "ast.h"
 
 static void bcc_ast_entry_print(struct bcc_ast_entry *ent, FILE *out);
@@ -10,6 +11,14 @@ static void print_node_literal_number(struct bcc_ast_entry *ent, FILE *out)
 {
     struct bae_literal_number *lit_num = container_of(ent, struct bae_literal_number, ent);
     fprintf(out, "%d", lit_num->value);
+}
+
+static void print_node_literal_string(struct bcc_ast_entry *ent, FILE *out)
+{
+    struct bae_literal_string *lit_str = container_of(ent, struct bae_literal_string, ent);
+    char *esc = util_escape_str(lit_str->str);
+    fprintf(out, "\"%s\"", esc);
+    free(esc);
 }
 
 static void print_node_var_load(struct bcc_ast_entry *ent, FILE *out)
@@ -27,27 +36,12 @@ static void print_node_var_store(struct bcc_ast_entry *ent, FILE *out)
 static void print_node_binary_op(struct bcc_ast_entry *ent, FILE *out)
 {
     struct bae_binary_op *bin_op = container_of(ent, struct bae_binary_op, ent);
+    const char *bin_op_str = binary_op_string(bin_op->op);
 
     fprintf(out, "(");
     bcc_ast_entry_print(bin_op->left, out);
 
-    switch (bin_op->op) {
-    case BCC_AST_BINARY_OP_PLUS:
-        fprintf(out, " + ");
-        break;
-
-    case BCC_AST_BINARY_OP_MINUS:
-        fprintf(out, " - ");
-        break;
-
-    case BCC_AST_BINARY_OP_MULT:
-        fprintf(out, " * ");
-        break;
-
-    case BCC_AST_BINARY_OP_DIV:
-        fprintf(out, " / ");
-        break;
-    }
+    fprintf(out, "%s", bin_op_str);
 
     bcc_ast_entry_print(bin_op->right, out);
     fprintf(out, ")");
@@ -132,6 +126,7 @@ static void print_node_return(struct bcc_ast_entry *ent, FILE *out)
 
 static void (*print_node_table[BCC_AST_NODE_MAX])(struct bcc_ast_entry *, FILE *) = {
     [BCC_AST_NODE_LITERAL_NUMBER] = print_node_literal_number,
+    [BCC_AST_NODE_LITERAL_STRING] = print_node_literal_string,
     [BCC_AST_NODE_VAR_LOAD] = print_node_var_load,
     [BCC_AST_NODE_VAR_STORE] = print_node_var_store,
     [BCC_AST_NODE_BINARY_OP] = print_node_binary_op,

@@ -13,7 +13,7 @@
 #define YYERROR_VERBOSE
 
 struct temp_list {
-    list_head_t head;   
+    list_head_t head;
 };
 
 #define TEMP_LIST_INIT(e) \
@@ -25,6 +25,31 @@ static inline void temp_list_init(struct temp_list *t)
 {
     *t = (struct temp_list)TEMP_LIST_INIT(*t);
 }
+
+#define ABORT_WITH_ERROR(tok, str) \
+    do { \
+        parser_error((tok), scanner, (str)); \
+        YYABORT; \
+    } while (0)
+
+static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right);
+static struct bcc_ast_entry *create_assignment(struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op);
+
+#define ASSIGNMENT(lval, rval, loc, bin_op) \
+    ({ \
+        struct bcc_ast_entry *assignment = create_assignment((lval), (rval), (bin_op)); \
+        if (!assignment) { \
+            char *str1, *str2; \
+            char buf[2048]; \
+            str1 = bcc_ast_type_get_name(lval->node_type); \
+            str2 = bcc_ast_type_get_name(rval->node_type); \
+            snprintf(buf, sizeof(buf), "Type of lvalue (%s) not compatible with type of rvalue (%s)", str1, str2); \
+            free(str1); \
+            free(str2); \
+            ABORT_WITH_ERROR(&(loc), buf); \
+        } \
+        assignment; \
+    })
 
 %}
 
@@ -64,6 +89,9 @@ typedef struct YYLTYPE {
     int yylex(YYSTYPE *yylval_param, YYLTYPE *yylloc_param, struct bcc_ast *ast, struct bcc_parser_state *state, yyscan_t yyscanner)
 YY_DECL;
 
+void parser_error(YYLTYPE *loc, yyscan_t scanner, const char *str);
+void parser_warning(YYLTYPE *loc, yyscan_t scanner, const char *str);
+
 void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yyscan_t, const char *str);
 }
 
@@ -73,12 +101,18 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
     struct bcc_ast_entry *entry;
     struct bcc_ast_variable *param;
     struct temp_list *temp_list;
+    struct bcc_ast_type *type;
+
+    struct {
+        struct bcc_ast_type *type;
+        char *ident;
+    } declarator;
 }
 
 %define api.pure full
 
-%parse-param { struct bcc_ast *ast } 
-%lex-param { struct bcc_ast *ast } 
+%parse-param { struct bcc_ast *ast }
+%lex-param { struct bcc_ast *ast }
 %parse-param { struct bcc_parser_state *state }
 %lex-param { struct bcc_parser_state *state }
 %parse-param { yyscan_t scanner }
@@ -89,34 +123,189 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 %token <str> TOK_IDENT TOK_FUNCTION TOK_STRING
 %token <ival> TOK_NUMBER
 
-%token TOK_NOT_EQUAL TOK_GREATER_THAN_EQUAL TOK_LESS_THAN_EQUAL
-%token TOK_EOF TOK_ERR
-%token TOK_TYPE
+%token TOK_NOT_EQUAL          "!="
+%token TOK_GREATER_THAN_EQUAL ">="
+%token TOK_LESS_THAN_EQUAL    "<="
+%token TOK_DOUBLE_EQUAL       "=="
+%token TOK_SHIFTRIGHT         ">>"
+%token TOK_SHIFTLEFT          "<<"
+%token TOK_LOGICAL_AND        "&&"
+%token TOK_LOGICAL_OR         "||"
+%token TOK_PLUSPLUS           "++"
+%token TOK_MINUSMINUS         "--"
+%token TOK_EOF
+%token TOK_ERR
+%token <type> TOK_TYPE
 %token TOK_RETURN
 %token TOK_WHILE
+%token TOK_ELLIPSIS
+
+%token TOK_ASSIGN_PLUS "+="
+%token TOK_ASSIGN_MINUS "-="
+%token TOK_ASSIGN_MULT "*="
+%token TOK_ASSIGN_DIV "/="
+%token TOK_ASSIGN_MOD "%="
+%token TOK_ASSIGN_SHIFTRIGHT ">>="
+%token TOK_ASSIGN_SHIFTLEFT "<<="
+%token TOK_ASSIGN_AND "&="
+%token TOK_ASSIGN_OR  "|="
+%token TOK_ASSIGN_XOR "^="
+
+%token TOK_INT TOK_CHAR TOK_LONG TOK_SHORT
 
 %token TOK_IF TOK_ELSE
 
 %type <entry> lvalue expression statement block optional_block function function_declaration
 %type <param> parameter
-%type <temp_list> function_arg_list function_arg_list_or_empty
+
+%type <ival> parameter_list_optional_ellipsis parameter_list_or_empty
+
+%type <temp_list> function_arg_list
+%type <temp_list> function_arg_list_or_empty
+%type <str> string
+
+%type <type> type_specifier type_direct_abstract_declaractor type_abstract_declarator
+%type <type> type_pointer
+%type <declarator> type_direct_declarator type_declarator type_name
 
 %nonassoc "then"
 %nonassoc TOK_ELSE
 %nonassoc "load"
-%nonassoc '='
 
+%left ','
+%right "assignment" /* All assignment statements have the same precedence */
+%right "ternary"
+%left TOK_LOGICAL_OR
+%left TOK_LOGICAL_AND
+%left '|'
+%left '^'
+%left '&'
+%left TOK_DOUBLE_EQUAL TOK_NOT_EQUAL
+%left '>' '<' TOK_GREATER_THAN_EQUAL TOK_LESS_THAN_EQUAL
+%left TOK_SHIFTRIGHT TOK_SHIFTLEFT
 %left '+' '-'
-%left '*' '/'
+%left '*' '/' '%'
+%right '!' '~' TOK_PLUSPLUS TOK_MINUSMINUS "unary_plus" "unary_minus" "dereference" "addressof" "cast"
+%left "plusplus-postfix" "minusminus-postfix"
 
 %start basic_cc_file
 
 %%
 
+/* Type parsing */
+type_specifier
+    : TOK_INT   { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_INT; }
+    | TOK_LONG  { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_LONG; }
+    | TOK_SHORT { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_SHORT; }
+    | TOK_CHAR  { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_CHAR; }
+
+type_pointer
+    : '*' {
+        $$ = create_bcc_ast_type_pointer(ast, NULL);
+    }
+    | type_pointer '*' {
+        $$ = create_bcc_ast_type_pointer(ast, $1);
+    }
+
+type_direct_abstract_declaractor
+    : '(' type_abstract_declarator ')' {
+        $$ = $2;
+    }
+    | '(' ')' {
+        $$ = NULL;
+    }
+
+type_abstract_declarator
+    : type_pointer
+    | type_direct_abstract_declaractor
+    | type_pointer type_direct_abstract_declaractor {
+        struct bcc_ast_type *type = $1;
+
+        for (; type->inner; type = type->inner)
+            ;
+
+        type->inner = $2;
+        $$ = $1;
+    }
+
+type_direct_declarator
+    : TOK_IDENT {
+        $$.type = NULL;
+        $$.ident = $1;
+    }
+    | '(' type_declarator ')' {
+        $$ = $2;
+    }
+
+type_declarator
+    : type_pointer type_direct_declarator {
+        struct bcc_ast_type *type = $1;
+        for (; type->inner; type = type->inner)
+            ;
+
+        type->inner = $2.type;
+        $$ = $2;
+    }
+    | type_direct_declarator
+
+/*
+type_declaration
+    : type_specifier type_declarator {
+        struct bcc_ast_type *type = $2.type;
+        for (; type->inner; type = type->inner)
+            ;
+
+        type->inner = $1;
+        $$ = $2;
+    }
+    */
+
+type_name
+    : type_specifier  {
+        $$.ident = NULL;
+        $$.type = $1;
+    }
+    | type_specifier type_abstract_declarator {
+        struct bcc_ast_type *type = $2;
+        for (; type->inner; type = type->inner)
+            ;
+
+        type->inner = $1;
+        $$.ident = NULL;
+        $$.type = $2;
+    }
+    | type_specifier type_declarator {
+        struct bcc_ast_type *type = $2.type;
+
+        if ($2.type) {
+            for (; type->inner; type = type->inner)
+                ;
+
+            type->inner = $1;
+            $$ = $2;
+        } else {
+            $$.type = $1;
+            $$.ident = $2.ident;
+        }
+    }
+
+string
+    : TOK_STRING
+    | string TOK_STRING {
+        size_t len = strlen($1) + strlen($2) + 1;
+        char *newstr = realloc($1, len);
+
+        strcat(newstr, $2);
+        free($2);
+
+        $$ = newstr;
+    }
+
 lvalue
     : TOK_IDENT {
         struct bae_var_store *store = create_bae_var_store();
         store->var = bcc_ast_find_variable(ast, state->current_scope, $1);
+        store->ent.node_type = store->var->type;
         free($1);
         $$ = &store->ent;
     }
@@ -139,13 +328,22 @@ function_arg_list_or_empty
     | function_arg_list
 
 expression
-    : TOK_NUMBER {
+    : '(' expression ')' { $$ = $2; }
+    | TOK_NUMBER {
         struct bae_literal_number *lit_num = create_bae_literal_number($1);
+        lit_num->ent.node_type = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
         $$ = &lit_num->ent;
+    }
+    | string {
+        struct bae_literal_string *lit_str = create_bae_literal_string();
+        lit_str->ent.node_type = &bcc_ast_type_char_ptr;
+        lit_str->str = $1;
+        $$ = &lit_str->ent;
     }
     | TOK_FUNCTION '(' function_arg_list_or_empty ')' {
         struct bae_func_call *call = create_bae_func_call();
         call->func = bcc_ast_find_function(ast, $1);
+        call->ent.node_type = call->func->ret_type;
 
         if ($3) {
             list_replace(&call->param_list, &$3->head);
@@ -159,67 +357,93 @@ expression
     | TOK_IDENT %prec "load" {
         struct bae_var_load *var = create_bae_var_load();
         var->var = bcc_ast_find_variable(ast, state->current_scope, $1);
-        if (!var->var) {
-            yyerror(&@1, ast, state, scanner, "Unknown variable name");
-            YYABORT;
-        }
+        if (!var->var)
+            ABORT_WITH_ERROR(&@1, "Unknown variable name");
+
+        var->ent.node_type = var->var->type;
         free($1);
         $$ = &var->ent;
     }
-    | expression '+' expression {
-        struct bae_binary_op *bin_op = create_bae_binary_op(BCC_AST_BINARY_OP_PLUS);
-        bin_op->left = $1;
-        bin_op->right = $3;
-        $$ = &bin_op->ent;
-    }
-    | expression '-' expression {
-        struct bae_binary_op *bin_op = create_bae_binary_op(BCC_AST_BINARY_OP_MINUS);
-        bin_op->left = $1;
-        bin_op->right = $3;
-        $$ = &bin_op->ent;
-    }
-    | expression '*' expression {
-        struct bae_binary_op *bin_op = create_bae_binary_op(BCC_AST_BINARY_OP_MULT);
-        bin_op->left = $1;
-        bin_op->right = $3;
-        $$ = &bin_op->ent;
-    }
-    | expression '/' expression {
-        struct bae_binary_op *bin_op = create_bae_binary_op(BCC_AST_BINARY_OP_DIV);
-        bin_op->left = $1;
-        bin_op->right = $3;
-        $$ = &bin_op->ent;
-    }
-    | lvalue '=' expression {
-        struct bae_assign *assign = create_bae_assign();
-        assign->lvalue = $1;
-        assign->rvalue = $3;
-        $$ = &assign->ent;
-    }
-    | '(' expression ')' {
-        $$ = $2;
-    }
+    | expression '+' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_PLUS, $1, $3); }
+    | expression '-' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_MINUS, $1, $3); }
+    | expression '*' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_MULT, $1, $3); }
+    | expression '/' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_DIV, $1, $3); }
+    | expression '%' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_MOD, $1, $3); }
+    | expression ">>" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_SHIFTRIGHT, $1, $3); }
+    | expression "<<" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_SHIFTLEFT, $1, $3); }
+    | expression '>' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_GREATER_THAN, $1, $3); }
+    | expression '<' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_LESS_THAN, $1, $3); }
+    | expression ">=" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_GREATER_THAN_EQUAL, $1, $3); }
+    | expression "<=" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_LESS_THAN_EQUAL, $1, $3); }
+    | expression "==" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_DOUBLEEQUAL, $1, $3); }
+    | expression "!=" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_NOT_EQUAL, $1, $3); }
+    | expression '&' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_BITWISE_AND, $1, $3); }
+    | expression '|' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_BITWISE_OR, $1, $3); }
+    | expression '^' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_BITWISE_XOR, $1, $3); }
+    | expression "&&" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_LOGICAL_AND, $1, $3); }
+    | expression "||" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_LOGICAL_OR, $1, $3); }
+    | lvalue '=' expression %prec "assignment"   { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MAX); }
+    | lvalue "+=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_PLUS); }
+    | lvalue "-=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MINUS); }
+    | lvalue "*=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MULT); }
+    | lvalue "/=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_DIV); }
+    | lvalue "%=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MOD); }
+    | lvalue ">>=" expression %prec "assignment" { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_SHIFTRIGHT); }
+    | lvalue "<<=" expression %prec "assignment" { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_SHIFTLEFT); }
+    | lvalue "&=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_BITWISE_AND); }
+    | lvalue "|=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_BITWISE_OR); }
+    | lvalue "^=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_BITWISE_XOR); }
 
 declaration_optional_assignment
-    : TOK_IDENT {
+    : type_declarator {
         struct bcc_ast_variable *var = create_bcc_ast_variable();
-        var->name = $1;
+        struct bcc_ast_type *type;
+
+        var->type = $1.type;
+        var->name = $1.ident;
+
+        /* Fill in the declaration type */
+        if (var->type) {
+            for (type = var->type; type->inner; type = type->inner)
+                ;
+
+            type->inner = state->declaration_type;
+        } else {
+            var->type = state->declaration_type;
+        }
+
         list_add_tail(&state->current_scope->variable_list, &var->block_entry);
         list_add_tail(&state->current_func->local_variable_list, &var->func_entry);
     }
-    | TOK_IDENT '=' expression {
+    | type_declarator '=' expression {
         struct bcc_ast_variable *var = create_bcc_ast_variable();
-        var->name = $1;
+        struct bcc_ast_type *type;
+
+        var->type = $1.type;
+        var->name = $1.ident;
+
+        /* Fill in the declaration type */
+        if (var->type) {
+            for (type = var->type; type->inner; type = type->inner)
+                ;
+
+            type->inner = state->declaration_type;
+        } else {
+            var->type = state->declaration_type;
+        }
+
         list_add_tail(&state->current_scope->variable_list, &var->block_entry);
         list_add_tail(&state->current_func->local_variable_list, &var->func_entry);
 
         /* Create a new assignment of the expression to the just created variable */
         struct bae_var_store *store = create_bae_var_store();
         store->var = var;
+        store->ent.node_type = var->type;
 
         struct bae_assign *assign = create_bae_assign();
         assign->lvalue = &store->ent;
         assign->rvalue = $3;
+        assign->ent.node_type = store->ent.node_type;
 
         struct bae_expression_stmt *stmt = create_bae_expression_stmt();
         stmt->expression = &assign->ent;
@@ -232,7 +456,7 @@ declaration_list
     | declaration_list ',' declaration_optional_assignment
 
 declaration
-    : TOK_TYPE declaration_list ';'
+    : type_specifier { state->declaration_type = $1; } declaration_list ';'
 
 
 statement
@@ -276,7 +500,7 @@ optional_block
 
 block
     : %empty {
-        struct bae_block *block = create_bae_block(); 
+        struct bae_block *block = create_bae_block();
         block->outer_block = state->current_scope;
         state->current_scope = block;
         $$ = &block->ent;
@@ -290,9 +514,10 @@ block
     }
 
 parameter
-    : TOK_TYPE TOK_IDENT {
+    : type_name {
         struct bcc_ast_variable *var = create_bcc_ast_variable();
-        var->name = $2;
+        var->type = $1.type;
+        var->name = $1.ident;
         $$ = var;
     }
 
@@ -304,14 +529,19 @@ parameter_list
         list_add_tail(&state->temp_param_list, &$3->block_entry);
     }
 
+parameter_list_optional_ellipsis
+    : parameter_list { $$ = 0; }
+    | parameter_list ',' TOK_ELLIPSIS { $$ = 1; }
+
 parameter_list_or_empty
-    : %empty
-    | parameter_list
+    : %empty { $$ = 0; }
+    | parameter_list_optional_ellipsis
 
 function_declaration
-    : TOK_TYPE TOK_IDENT '(' parameter_list_or_empty ')' {
+    : type_specifier TOK_IDENT '(' parameter_list_or_empty ')' {
         struct bae_function *func = create_bae_function($2);
-        func->ret_type = NULL;
+        func->ret_type = $1;
+        func->has_ellipsis = $4;
         state->current_func = func;
 
         if (!list_empty(&state->temp_param_list)) {
@@ -350,6 +580,38 @@ basic_cc_file
 
 %%
 
+static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right)
+{
+    struct bae_binary_op *bin_op = create_bae_binary_op(op);
+    bin_op->left = left;
+    bin_op->right = right;
+
+    /* DO TYPE COMPATIBILITY CHECK AND UPCASTING HERE */
+    bin_op->ent.node_type = bin_op->left->node_type;
+    return &bin_op->ent;
+}
+
+static struct bcc_ast_entry *create_assignment(struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op)
+{
+    if (bin_op != BCC_AST_BINARY_OP_MAX) {
+        struct bcc_ast_entry *val = bcc_ast_convert_to_rvalue(lvalue);
+        if (!val)
+            return NULL;
+
+        rvalue = create_bin_from_components(bin_op, val, rvalue);
+    }
+
+    struct bae_assign *assign = create_bae_assign();
+    assign->lvalue = lvalue;
+    assign->rvalue = rvalue;
+
+    if (!bcc_ast_type_are_identical(lvalue->node_type, rvalue->node_type))
+        return NULL;
+
+    assign->ent.node_type = assign->lvalue->node_type;
+    return &assign->ent;
+}
+
 static void display_invalid_token(YYLTYPE *loc, yyscan_t scanner)
 {
     FILE *in = yyget_in(scanner);
@@ -384,7 +646,18 @@ static void display_invalid_token(YYLTYPE *loc, yyscan_t scanner)
 
 void yyerror(YYLTYPE *loc, struct bcc_ast *ast, struct bcc_parser_state *state, yyscan_t scanner, const char *str)
 {
-    fprintf(stderr, "Parser error: %s at:\n", str);
+    parser_error(loc, scanner, str);
+}
+
+void parser_error(YYLTYPE *loc, yyscan_t scanner, const char *str)
+{
+    fprintf(stderr, "Error: %s at:\n", str);
+    display_invalid_token(loc, scanner);
+}
+
+void parser_warning(YYLTYPE *loc, yyscan_t scanner, const char *str)
+{
+    fprintf(stderr, "Warning: %s at:\n", str);
     display_invalid_token(loc, scanner);
 }
 

@@ -10,9 +10,11 @@ struct bae_assign {
     struct bcc_ast_entry *rvalue;
 };
 
+void bae_assign_clear(struct bcc_ast_entry *);
+
 #define BAE_ASSIGN_INIT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_ASSIGN), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_ASSIGN, bae_assign_clear), \
     }
 
 static inline void bae_assign_init(struct bae_assign *n)

@@ -43,6 +43,9 @@ static int parse_using_yacc(struct bcc_ast *ast, FILE *in)
     yylex_init(&scan);
     yyset_in(in, scan);
 
+    state.scanner = scan;
+    state.ast = ast;
+
     int ret = yyparse(ast, &state, scan);
 
     yylex_destroy(scan);
@@ -68,6 +71,27 @@ void bcc_ast_out(struct bcc_ast *ast, FILE *out, enum bcc_ast_out_format format)
     case BCC_AST_OUT_DUMP_AST:
         gen_dump_ast(ast, out);
         break;
+    }
+}
+
+/* This takes an lvalue and, if possible, converts it into an rvalue that will
+ * read the location instead of store to it
+ */
+struct bcc_ast_entry *bcc_ast_convert_to_rvalue(struct bcc_ast_entry *lvalue)
+{
+    struct bae_var_load *load;
+    struct bae_var_store *store;
+
+    switch (lvalue->type) {
+    case BCC_AST_NODE_VAR_STORE:
+        store = container_of(lvalue, struct bae_var_store, ent);
+        load = create_bae_var_load();
+        load->var = store->var;
+        load->ent.node_type = load->var->type;
+        return &load->ent;
+
+    default:
+        return NULL;
     }
 }
 
@@ -99,5 +123,17 @@ void bcc_ast_add_function(struct bcc_ast *ast, struct bae_function *func)
 {
     ast->function_count++;
     list_add_tail(&ast->function_list, &func->function_entry);
+}
+
+void bcc_ast_clear(struct bcc_ast *ast)
+{
+    struct bae_function *func;
+
+    list_foreach_take_entry(&ast->function_list, func, function_entry) {
+        bcc_ast_entry_clear(&func->ent);
+        free(func);
+    }
+
+    object_pool_clear(&ast->type_object_pool);
 }
 

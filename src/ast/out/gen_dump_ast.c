@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdarg.h>
 
+#include "util.h"
 #include "ast.h"
 
 struct print_state {
@@ -31,6 +32,14 @@ static void print_node_literal_number(struct print_state *state, struct bcc_ast_
     print_state_out(state, "BCC_AST_NODE_LITERAL_NUMBER: %d\n", lit_num->value);
 }
 
+static void print_node_literal_string(struct print_state *state, struct bcc_ast_entry *ent)
+{
+    struct bae_literal_string *lit_str = container_of(ent, struct bae_literal_string, ent);
+    char *esc = util_escape_str(lit_str->str);
+    print_state_out(state, "BCC_AST_NODE_LITERAL_STRING: \"%s\"\n", esc);
+    free(esc);
+}
+
 static void print_node_var_load(struct print_state *state, struct bcc_ast_entry *ent)
 {
     struct bae_var_load *var = container_of(ent, struct bae_var_load, ent);
@@ -46,26 +55,7 @@ static void print_node_var_store(struct print_state *state, struct bcc_ast_entry
 static void print_node_binary_op(struct print_state *state, struct bcc_ast_entry *ent)
 {
     struct bae_binary_op *bin_op = container_of(ent, struct bae_binary_op, ent);
-    const char *bin_op_str = "";
-
-    switch (bin_op->op) {
-    case BCC_AST_BINARY_OP_PLUS:
-        bin_op_str = " + ";
-        break;
-
-    case BCC_AST_BINARY_OP_MINUS:
-        bin_op_str = " - ";
-        break;
-
-    case BCC_AST_BINARY_OP_MULT:
-        bin_op_str = " * ";
-        break;
-
-    case BCC_AST_BINARY_OP_DIV:
-        bin_op_str = " / ";
-        break;
-    }
-
+    const char *bin_op_str = binary_op_string(bin_op->op);
 
     print_state_out(state, "BCC_AST_NODE_BINARY_OP: %s\n", bin_op_str);
 
@@ -177,6 +167,7 @@ static void print_node_while(struct print_state *state, struct bcc_ast_entry *en
 
 static void (*print_node_table[BCC_AST_NODE_MAX])(struct print_state *, struct bcc_ast_entry *) = {
     [BCC_AST_NODE_LITERAL_NUMBER] = print_node_literal_number,
+    [BCC_AST_NODE_LITERAL_STRING] = print_node_literal_string,
     [BCC_AST_NODE_VAR_LOAD] = print_node_var_load,
     [BCC_AST_NODE_VAR_STORE] = print_node_var_store,
     [BCC_AST_NODE_BINARY_OP] = print_node_binary_op,

@@ -7,8 +7,6 @@
 #include "parser.h"
 #include "parser.tab.h"
 
-#define YY_NO_INPUT
-
 #define YY_USER_ACTION update_location(yyscanner, state);
 
 static void update_location(yyscan_t scan, struct bcc_parser_state *state);
@@ -21,9 +19,11 @@ static void state_append_str(struct bcc_parser_state *state, char ch);
 
 %option noyywrap
 %option nounput
+%option noinput
 %option yylineno
 
 %x string
+%x char_literal
 
 %%
 
@@ -35,17 +35,44 @@ static void state_append_str(struct bcc_parser_state *state, char ch);
 
 [ \t]+ /* White space */
 
+"++" { return TOK_PLUSPLUS; }
+"--" { return TOK_MINUSMINUS; }
+
+"<<" { return TOK_SHIFTLEFT; }
+">>" { return TOK_SHIFTRIGHT; }
+
+"&&" { return TOK_LOGICAL_AND; }
+"||" { return TOK_LOGICAL_OR; }
+
+"==" { return TOK_DOUBLE_EQUAL; }
+
 "!=" { return TOK_NOT_EQUAL; }
 ">=" { return TOK_GREATER_THAN_EQUAL; }
 "<=" { return TOK_LESS_THAN_EQUAL; }
+
+"+=" { return TOK_ASSIGN_PLUS; }
+"-=" { return TOK_ASSIGN_MINUS; }
+"*=" { return TOK_ASSIGN_MULT; }
+"/=" { return TOK_ASSIGN_DIV; }
+"%=" { return TOK_ASSIGN_MOD; }
+">>=" { return TOK_ASSIGN_SHIFTRIGHT; }
+"<<=" { return TOK_ASSIGN_SHIFTLEFT; }
+"&=" { return TOK_ASSIGN_AND; }
+"|=" { return TOK_ASSIGN_OR; }
+"^=" { return TOK_ASSIGN_XOR; }
+
+"..." { return TOK_ELLIPSIS; }
 
 "+" { return '+'; }
 "-" { return '-'; }
 "*" { return '*'; }
 "/" { return '/'; }
+"^" { return '^'; }
+"%" { return '%'; }
 "&" { return '&'; }
 "|" { return '|'; }
 "!" { return '!'; }
+"~" { return '~'; }
 
 "=" { return '='; }
 "<" { return '<'; }
@@ -58,17 +85,35 @@ static void state_append_str(struct bcc_parser_state *state, char ch);
 ";" { return ';'; }
 "," { return ','; }
 
-"\"" { BEGIN(string); }
+"\"" {
+    state->lexing_state = BCC_LEXER_STATE_STRING_LITERAL;
+    BEGIN(string);
+}
+
+' {
+    state->lex_int = 0;
+    state->lexing_state = BCC_LEXER_STATE_CHAR_LITERAL;
+    BEGIN(char_literal);
+}
+
 
 [0-9]+ {
     yylval->ival = atoi(yytext);
     return TOK_NUMBER;
 }
 
+0[xX][0-9a-fA-F]+ {
+    yylval->ival = strtol(yytext + 2, 0, 16);
+    return TOK_NUMBER;
+}
+
 "if" { return TOK_IF; }
 "else" { return TOK_ELSE; }
 "return" { return TOK_RETURN; }
-"int" { return TOK_TYPE; }
+"int" { return TOK_INT; }
+"long" { return TOK_LONG;}
+"short" { return TOK_SHORT; }
+"char" { return TOK_CHAR; }
 "while" { return TOK_WHILE; }
 
 [a-zA-Z_][a-zA-Z0-9_]* {
@@ -97,32 +142,52 @@ static void state_append_str(struct bcc_parser_state *state, char ch);
     return TOK_STRING;
 }
 
-<string>\\[0-7]{1,3} {
+<string>\n {
+    parser_warning(yylloc, yyscanner, "Unexpected newline in string constant, ignored");
+    yylloc->file_line_offset = state->file_offset;
+    state->last_line++;
+    state->last_column = 0;
+}
+
+<string,char_literal>\\[0-7]{1,3} {
     int result = strtol(yytext + 1, NULL, 8);
     state_append_str(state, (char)result);
 }
 
-<string>"\\x"[0-9a-fA-F]{1,2} {
+<string,char_literal>"\\x"[0-9a-fA-F]{1,2} {
     int result = strtol(yytext + 2, NULL, 16);
     state_append_str(state, (char)result);
 }
 
-<string>\\a { state_append_str(state, '\a'); }
-<string>\\b { state_append_str(state, '\b'); }
-<string>\\f { state_append_str(state, '\f'); }
-<string>\\n { state_append_str(state, '\n'); }
-<string>\\r { state_append_str(state, '\r'); }
-<string>\\t { state_append_str(state, '\t'); }
-<string>\\v { state_append_str(state, '\v'); }
-<string>\\\\ { state_append_str(state, '\\'); }
-<string>"\\'" { state_append_str(state, '\''); }
-<string>"\\\"" { state_append_str(state, '\"'); }
-<string>"\\?" { state_append_str(state, '\?'); }
+<string,char_literal>\\a { state_append_str(state, '\a'); }
+<string,char_literal>\\b { state_append_str(state, '\b'); }
+<string,char_literal>\\f { state_append_str(state, '\f'); }
+<string,char_literal>\\n { state_append_str(state, '\n'); }
+<string,char_literal>\\r { state_append_str(state, '\r'); }
+<string,char_literal>\\t { state_append_str(state, '\t'); }
+<string,char_literal>\\v { state_append_str(state, '\v'); }
+<string,char_literal>\\\\ { state_append_str(state, '\\'); }
+<string,char_literal>"\\'" { state_append_str(state, '\''); }
+<string,char_literal>"\\\"" { state_append_str(state, '\"'); }
+<string,char_literal>"\\?" { state_append_str(state, '\?'); }
 <string>[^\\\"\n]+ {
     char *ptr = yytext;
     for (; *ptr; ptr++)
         state_append_str(state, *ptr);
 }
+
+<char_literal>[^\\\'\n]+ {
+    char *ptr = yytext;
+    for (; *ptr; ptr++)
+        state_append_str(state, *ptr);
+}
+
+<char_literal>' {
+    yylval->ival = state->lex_int;
+    BEGIN(INITIAL);
+    return TOK_NUMBER;
+}
+
 %%
 
 static void update_location(yyscan_t scan, struct bcc_parser_state *state)
@@ -147,12 +212,27 @@ static void update_location(yyscan_t scan, struct bcc_parser_state *state)
 
 static void state_append_str(struct bcc_parser_state *state, char ch)
 {
-    state->lex_str_len++;
-    if (state->lex_str_len >= state->lex_str_capacity) {
-        state->lex_str_capacity *= 2;
-        state->lex_str = realloc(state->lex_str, state->lex_str_capacity);
-    }
+    unsigned int temp = ch;
 
-    state->lex_str[state->lex_str_len - 1] = ch;
+    switch (state->lexing_state) {
+    case BCC_LEXER_STATE_CHAR_LITERAL:
+        state->lex_int <<= 8;
+        state->lex_int |= temp;
+        break;
+
+    case BCC_LEXER_STATE_STRING_LITERAL:
+        state->lex_str_len++;
+        if (state->lex_str_len >= state->lex_str_capacity) {
+            if (state->lex_str_capacity == 0)
+                state->lex_str_capacity = 20;
+            else
+                state->lex_str_capacity *= 2;
+
+            state->lex_str = realloc(state->lex_str, state->lex_str_capacity);
+        }
+
+        state->lex_str[state->lex_str_len - 1] = ch;
+        break;
+    }
 }
 

@@ -46,7 +46,7 @@ DEPS += $(TEST_OBJS)
 CLEAN_LIST += $(TEST_OBJS)
 CLEAN_LIST += $(TEST_TESTS) ./test/test.o ./test/bin
 
-run_tests: $(EXES) # ./test/test.o $(TEST_TESTS)
+run_tests: $(EXES) | test/bin # ./test/test.o $(TEST_TESTS)
 # $(Q)./test/run_tests.sh $(TESTS)
 	$(Q)./test/run_compile_tests.sh
 
