@@ -4,16 +4,18 @@
 #include <stdbool.h>
 
 enum bcc_ast_primitive_type {
+    BCC_AST_PRIM_VOID,
     BCC_AST_PRIM_INT,
     BCC_AST_PRIM_CHAR,
     BCC_AST_PRIM_SHORT,
     BCC_AST_PRIM_LONG,
-    BCC_AST_PRIM_MAX,
+    BCC_AST_PRIM_MAX
 };
 
 enum bcc_ast_type_node {
     BCC_AST_TYPE_PRIM,
     BCC_AST_TYPE_POINTER,
+    BCC_AST_TYPE_MAX
 };
 
 /*
@@ -26,6 +28,8 @@ enum bcc_ast_type_node {
 struct bcc_ast_type {
     enum bcc_ast_type_node node_type;
     enum bcc_ast_primitive_type prim;
+
+    size_t size;
 
     struct bcc_ast_type *inner;
 };
@@ -43,6 +47,8 @@ struct bcc_ast;
 
 struct bcc_ast_type *create_bcc_ast_type(struct bcc_ast *ast);
 
+#define BCC_AST_TYPE_POINTER_SIZE 4
+
 static inline struct bcc_ast_type *create_bcc_ast_type_prim(struct bcc_ast *ast, enum bcc_ast_primitive_type prim)
 {
     struct bcc_ast_type *type = create_bcc_ast_type(ast);
@@ -55,6 +61,7 @@ static inline struct bcc_ast_type *create_bcc_ast_type_pointer(struct bcc_ast *a
 {
     struct bcc_ast_type *type = create_bcc_ast_type(ast);
     type->node_type = BCC_AST_TYPE_POINTER;
+    type->size = BCC_AST_TYPE_POINTER_SIZE;
     type->inner = inner;
     return type;
 }
@@ -65,5 +72,17 @@ extern struct bcc_ast_type bcc_ast_type_char_ptr;
 bool bcc_ast_type_are_identical(struct bcc_ast_type *first, struct bcc_ast_type *second);
 int bcc_ast_type_are_compatible(struct bcc_ast_type *first, struct bcc_ast_type *second);
 char *bcc_ast_type_get_name(struct bcc_ast_type *type);
+
+bool bcc_ast_type_is_integer(struct bcc_ast_type *);
+
+static inline bool bcc_ast_type_is_pointer(struct bcc_ast_type *type)
+{
+    return type->node_type == BCC_AST_TYPE_POINTER;
+}
+
+struct bcc_ast_type *bcc_ast_type_integer_promotion(struct bcc_ast_type *first, struct bcc_ast_type *second);
+
+/* Checks for an implicit cast between 'first' and 'second'.  */
+struct bcc_ast_type *bcc_ast_type_implicit_cast_exists(struct bcc_ast_type *first, struct bcc_ast_type *second);
 
 #endif

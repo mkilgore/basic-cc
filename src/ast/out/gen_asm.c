@@ -21,16 +21,8 @@ static void gen_node_literal_number(struct gen_state *state, struct bcc_ast_entr
 static void gen_node_literal_string(struct gen_state *state, struct bcc_ast_entry *ent, FILE *out)
 {
     struct bae_literal_string *lit_str = container_of(ent, struct bae_literal_string, ent);
-    int strid = state->next_label++;
-    char *esc = util_escape_str(lit_str->str);
 
-    fprintf(out, ".data\n");
-    fprintf(out, "str%d:\n", strid);
-    fprintf(out, ".asciz \"%s\"\n", esc);
-    fprintf(out, ".text\n");
-    fprintf(out, "    movl $str%d, %%eax\n", strid);
-
-    free(esc);
+    fprintf(out, "    movl $.LS%d, %%eax\n", lit_str->string_id);
 }
 
 static void gen_node_var_load(struct gen_state *state, struct bcc_ast_entry *ent, FILE *out)
@@ -264,6 +256,11 @@ static void gen_node_while(struct gen_state *state, struct bcc_ast_entry *ent, F
     fprintf(out, ".L_WHILE_END%d:\n", label);
 }
 
+static void gen_node_cast(struct gen_state *state, struct bcc_ast_entry *ent, FILE *out)
+{
+
+}
+
 void (*gen_entry_table[BCC_AST_NODE_MAX]) (struct gen_state *state, struct bcc_ast_entry *ent, FILE *) = {
     [BCC_AST_NODE_LITERAL_NUMBER] = gen_node_literal_number,
     [BCC_AST_NODE_LITERAL_STRING] = gen_node_literal_string,
@@ -277,6 +274,7 @@ void (*gen_entry_table[BCC_AST_NODE_MAX]) (struct gen_state *state, struct bcc_a
     [BCC_AST_NODE_ASSIGN] = gen_node_assign,
     [BCC_AST_NODE_RETURN] = gen_node_return,
     [BCC_AST_NODE_WHILE] = gen_node_while,
+    [BCC_AST_NODE_CAST] = gen_node_cast,
 };
 
 static void gen_bcc_ast_entry(struct gen_state *state, struct bcc_ast_entry *ent, FILE *out)
@@ -313,6 +311,19 @@ static void gen_bcc_ast_function(struct gen_state *state, struct bae_function *f
     }
 }
 
+static void gen_bcc_literal_strings(struct gen_state *state, struct bcc_ast *ast)
+{
+    struct bae_literal_string *lit_str;
+    fprintf(state->out, ".section .rodata\n");
+
+    list_foreach_entry(&ast->literal_string_list, lit_str, literal_string_entry) {
+        char *esc = util_escape_str(lit_str->str);
+
+        fprintf(state->out, ".LS%d: .asciz \"%s\"\n", lit_str->string_id, esc);
+        free(esc);
+    }
+}
+
 void gen_asm_x86(struct bcc_ast *ast, FILE *out)
 {
     struct gen_state state;
@@ -321,6 +332,10 @@ void gen_asm_x86(struct bcc_ast *ast, FILE *out)
     memset(&state, 0, sizeof(state));
 
     state.out = out;
+
+    gen_bcc_literal_strings(&state, ast);
+
+    fprintf(state.out, ".text\n");
 
     list_foreach_entry(&ast->function_list, func, function_entry)
         gen_bcc_ast_function(&state, func, out);

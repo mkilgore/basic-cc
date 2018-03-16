@@ -151,7 +151,7 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 %token TOK_ASSIGN_OR  "|="
 %token TOK_ASSIGN_XOR "^="
 
-%token TOK_INT TOK_CHAR TOK_LONG TOK_SHORT
+%token TOK_INT TOK_CHAR TOK_LONG TOK_SHORT TOK_VOID
 
 %token TOK_IF TOK_ELSE
 
@@ -166,7 +166,8 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 
 %type <type> type_specifier type_direct_abstract_declaractor type_abstract_declarator
 %type <type> type_pointer
-%type <declarator> type_direct_declarator type_declarator type_name
+%type <type> type_name
+%type <declarator> type_direct_declarator type_declarator type_name_optional_ident
 
 %nonassoc "then"
 %nonassoc TOK_ELSE
@@ -198,6 +199,7 @@ type_specifier
     | TOK_LONG  { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_LONG; }
     | TOK_SHORT { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_SHORT; }
     | TOK_CHAR  { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_CHAR; }
+    | TOK_VOID  { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_VOID; }
 
 type_pointer
     : '*' {
@@ -244,7 +246,8 @@ type_declarator
             ;
 
         type->inner = $2.type;
-        $$ = $2;
+        $$.type = $1;
+        $$.ident = $2.ident;
     }
     | type_direct_declarator
 
@@ -262,8 +265,7 @@ type_declaration
 
 type_name
     : type_specifier  {
-        $$.ident = NULL;
-        $$.type = $1;
+        $$ = $1;
     }
     | type_specifier type_abstract_declarator {
         struct bcc_ast_type *type = $2;
@@ -271,9 +273,11 @@ type_name
             ;
 
         type->inner = $1;
-        $$.ident = NULL;
-        $$.type = $2;
+        $$ = $2;
     }
+
+type_name_optional_ident
+    : type_name { $$.ident = NULL; $$.type = $1; }
     | type_specifier type_declarator {
         struct bcc_ast_type *type = $2.type;
 
@@ -338,6 +342,7 @@ expression
         struct bae_literal_string *lit_str = create_bae_literal_string();
         lit_str->ent.node_type = &bcc_ast_type_char_ptr;
         lit_str->str = $1;
+        bcc_ast_add_literal_string(ast, lit_str);
         $$ = &lit_str->ent;
     }
     | TOK_FUNCTION '(' function_arg_list_or_empty ')' {
@@ -363,6 +368,32 @@ expression
         var->ent.node_type = var->var->type;
         free($1);
         $$ = &var->ent;
+    }
+    | '(' type_name ')' expression %prec "cast" { 
+        struct bcc_ast_type *target = $2;
+        struct bcc_ast_type *start = $4->node_type;
+        struct bae_cast *cast;
+
+        if (bcc_ast_type_is_integer(start) && bcc_ast_type_is_integer(target)) {
+            /* Integer casts are always allowed */
+        } else if (bcc_ast_type_is_pointer(start) && bcc_ast_type_is_pointer(target)) {
+            /* Pointer casts are always allowed */
+        } else if (bcc_ast_type_is_pointer(start) && bcc_ast_type_is_integer(target)) {
+            /* Cast from pointer to integer */
+            if (start->size != target->size)
+                parser_warning(&@2, scanner, "Pointer is cast to integer of wrong size");
+
+        } else if (bcc_ast_type_is_integer(start) && bcc_ast_type_is_pointer(target)) {
+            /* Cast from integer to pointer */
+        } else {
+            ABORT_WITH_ERROR(&@2, "Invalid cast");
+        }
+
+        cast = create_bae_cast();
+        cast->expr = $4;
+        cast->target = target;
+        cast->ent.node_type = target;
+        $$ = &cast->ent;
     }
     | expression '+' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_PLUS, $1, $3); }
     | expression '-' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_MINUS, $1, $3); }
@@ -397,13 +428,13 @@ expression
 declaration_optional_assignment
     : type_declarator {
         struct bcc_ast_variable *var = create_bcc_ast_variable();
-        struct bcc_ast_type *type;
 
         var->type = $1.type;
         var->name = $1.ident;
 
         /* Fill in the declaration type */
         if (var->type) {
+            struct bcc_ast_type *type;
             for (type = var->type; type->inner; type = type->inner)
                 ;
 
@@ -411,19 +442,23 @@ declaration_optional_assignment
         } else {
             var->type = state->declaration_type;
         }
+
+        char *str1 = bcc_ast_type_get_name(var->type);
+        printf("Adding var %s: Type: %s\n", var->name, str1);
+        free(str1);
 
         list_add_tail(&state->current_scope->variable_list, &var->block_entry);
         list_add_tail(&state->current_func->local_variable_list, &var->func_entry);
     }
     | type_declarator '=' expression {
         struct bcc_ast_variable *var = create_bcc_ast_variable();
-        struct bcc_ast_type *type;
 
         var->type = $1.type;
         var->name = $1.ident;
 
         /* Fill in the declaration type */
         if (var->type) {
+            struct bcc_ast_type *type;
             for (type = var->type; type->inner; type = type->inner)
                 ;
 
@@ -434,6 +469,10 @@ declaration_optional_assignment
 
         list_add_tail(&state->current_scope->variable_list, &var->block_entry);
         list_add_tail(&state->current_func->local_variable_list, &var->func_entry);
+
+        char *str1 = bcc_ast_type_get_name(var->type);
+        printf("Adding var %s: Type: %s\n", var->name, str1);
+        free(str1);
 
         /* Create a new assignment of the expression to the just created variable */
         struct bae_var_store *store = create_bae_var_store();
@@ -456,7 +495,12 @@ declaration_list
     | declaration_list ',' declaration_optional_assignment
 
 declaration
-    : type_specifier { state->declaration_type = $1; } declaration_list ';'
+    : type_specifier {
+        if ($1->node_type == BCC_AST_TYPE_PRIM && $1->prim == BCC_AST_PRIM_VOID)
+            ABORT_WITH_ERROR(&@1, "Variable cannot be of type void");
+
+        state->declaration_type = $1;
+        } declaration_list ';'
 
 
 statement
@@ -514,7 +558,7 @@ block
     }
 
 parameter
-    : type_name {
+    : type_name_optional_ident {
         struct bcc_ast_variable *var = create_bcc_ast_variable();
         var->type = $1.type;
         var->name = $1.ident;

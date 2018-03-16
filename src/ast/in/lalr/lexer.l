@@ -35,6 +35,17 @@ static void state_append_str(struct bcc_parser_state *state, char ch);
 
 [ \t]+ /* White space */
 
+"if" { return TOK_IF; }
+"else" { return TOK_ELSE; }
+"return" { return TOK_RETURN; }
+"while" { return TOK_WHILE; }
+
+"int" { return TOK_INT; }
+"long" { return TOK_LONG;}
+"short" { return TOK_SHORT; }
+"char" { return TOK_CHAR; }
+"void" { return TOK_VOID; }
+
 "++" { return TOK_PLUSPLUS; }
 "--" { return TOK_MINUSMINUS; }
 
@@ -106,15 +117,6 @@ static void state_append_str(struct bcc_parser_state *state, char ch);
     yylval->ival = strtol(yytext + 2, 0, 16);
     return TOK_NUMBER;
 }
-
-"if" { return TOK_IF; }
-"else" { return TOK_ELSE; }
-"return" { return TOK_RETURN; }
-"int" { return TOK_INT; }
-"long" { return TOK_LONG;}
-"short" { return TOK_SHORT; }
-"char" { return TOK_CHAR; }
-"while" { return TOK_WHILE; }
 
 [a-zA-Z_][a-zA-Z0-9_]* {
     yylval->str = strdup(yytext);

@@ -7,10 +7,10 @@ int main() {
     int reg = 22;
 
     val = val << 1;
-    printf("Val: %d", val);
+    printf("Val: %d", val, val, val, val);
 
     reg = reg << 2;
-    printf("Reg: %d", reg);
+    printf("Reg: %d", reg, reg, reg, reg);
 
     return 0;
 }

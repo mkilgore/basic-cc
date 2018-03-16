@@ -199,7 +199,7 @@ $(objtree)/.%.d: $(srctree)/%.cpp
 	@echo " LEX     $@"
 	$(Q)$(LEX) $(LFLAGS) -o $@ $<
 
-src/%.tab.c src/%.tab.h: src/%.y
+src/%.tab.c src/%.tab.h src/%.output: src/%.y
 	@echo " YACC    src/$*.tab.c include/$*.tab.h"
 	$(Q)$(YACC) $(YFLAGS) -d -b ./src/$* $<
 

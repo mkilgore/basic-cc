@@ -137,3 +137,9 @@ void bcc_ast_clear(struct bcc_ast *ast)
     object_pool_clear(&ast->type_object_pool);
 }
 
+void bcc_ast_add_literal_string(struct bcc_ast *ast, struct bae_literal_string *lit_str)
+{
+    lit_str->string_id = ast->next_string_id++;
+    list_add_tail(&ast->literal_string_list, &lit_str->literal_string_entry);
+}
+

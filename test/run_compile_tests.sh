@@ -45,19 +45,23 @@ for f in ./test/output_test/*.bcc; do
         cat $TMP/basic-cc_cmp_result_err$i
     else
         rm -fr ./test/bin/test$i
-        gcc -x assembler -m32 -o ./test/bin/test$i $TMP/basic-cc_cmp_output$i
-        if [ ! -s ./test/bin/test$1 ]; then
+        gcc -x assembler -g -m32 -o ./test/bin/test$i $TMP/basic-cc_cmp_output$i
+        if [ ! -s ./test/bin/test$i ]; then
             FAILURE=$((FAILURE + 1))
             echo -e "[$i] $f: \e[31mFAIL\e[0m"
             echo "  - Did not assemble:"
         else
-            ./test/bin/test$i > $TMP/basic-cc_result$i
+            valgrind --quiet --error-exitcode=1 \
+                --leak-check=full --show-possibly-lost=yes --show-reachable=yes \
+                ./test/bin/test$i > $TMP/basic-cc_result$i
+            let exit_code=$?
 
-            if cmp --silent $TMP/basic-cc_result$i $f.output; then
+            if [[ $exit_code == 0 ]] && cmp --silent $TMP/basic-cc_result$i $f.output; then
                 echo -e "[$i] $f: \e[32mPASS\e[0m"
             else
                 FAILURE=$((FAILURE + 1))
                 echo -e "[$i] $f: \e[31mFAIL\e[0m"
+                echo "  - Return code: $error_code"
                 echo "  - Expected: `cat $f.output`"
                 echo "  - Got: `cat $TMP/basic-cc_result$i`"
             fi

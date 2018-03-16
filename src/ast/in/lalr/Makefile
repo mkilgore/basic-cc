@@ -1,5 +1,6 @@
 
 clean-list-y += parser.tab.c
+clean-list-y += parser.output
 CLEAN_LIST += $(srctree)/parser.tab.h
 
 # Add extra dependency information
@@ -10,7 +11,6 @@ CLEAN_LIST += $(srctree)/parser.tab.h
 $(srctree)/parser.tab.c: $(srctree)/parser.y
 $(srctree)/parser.tab.h: $(srctree)/parser.y
 $(srctree)/lexer.c: $(srctree)/lexer.l
-# 
 $(srctree)/lexer.l: $(srctree)/parser.tab.h
 
 objs-y += parser.tab.o

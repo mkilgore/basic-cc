@@ -13,6 +13,7 @@ struct print_state {
 };
 
 static void bcc_ast_entry_print(struct print_state *, struct bcc_ast_entry *ent);
+static void bcc_ast_type_print(struct print_state *, struct bcc_ast_type *type);
 
 static void print_state_out(struct print_state *state, const char *str, ...)
 {
@@ -165,6 +166,16 @@ static void print_node_while(struct print_state *state, struct bcc_ast_entry *en
     bcc_ast_entry_print(state, w->block);
 }
 
+static void print_node_cast(struct print_state *state, struct bcc_ast_entry *ent)
+{
+    struct bae_cast *cast = container_of(ent, struct bae_cast, ent);
+    print_state_out(state, "BCC_AST_NODE_CAST:\n");
+    print_state_out(state, "TYPE:\n");
+    bcc_ast_type_print(state, cast->target);
+    print_state_out(state, "EXPRESSION:\n");
+    bcc_ast_entry_print(state, cast->expr);
+}
+
 static void (*print_node_table[BCC_AST_NODE_MAX])(struct print_state *, struct bcc_ast_entry *) = {
     [BCC_AST_NODE_LITERAL_NUMBER] = print_node_literal_number,
     [BCC_AST_NODE_LITERAL_STRING] = print_node_literal_string,
@@ -179,6 +190,7 @@ static void (*print_node_table[BCC_AST_NODE_MAX])(struct print_state *, struct b
     [BCC_AST_NODE_ASSIGN] = print_node_assign,
     [BCC_AST_NODE_RETURN] = print_node_return,
     [BCC_AST_NODE_WHILE] = print_node_while,
+    [BCC_AST_NODE_CAST] = print_node_cast,
 };
 
 static void bcc_ast_entry_print(struct print_state *state, struct bcc_ast_entry *ent)
@@ -204,5 +216,40 @@ void gen_dump_ast(struct bcc_ast *ast, FILE *out)
         print_state_out(&state, "FUNCTION: %s\n", func->name);
         bcc_ast_entry_print(&state, &func->ent);
     }
+}
+
+static const char *type_name_table[] = {
+    [BCC_AST_PRIM_VOID] = "void",
+    [BCC_AST_PRIM_CHAR] = "char",
+    [BCC_AST_PRIM_SHORT] = "short",
+    [BCC_AST_PRIM_INT] = "int",
+    [BCC_AST_PRIM_LONG] = "long",
+};
+
+static void print_type_prim(struct print_state *state, struct bcc_ast_type *type)
+{
+    print_state_out(state, "TYPE: %s\n", type_name_table[type->prim]);
+}
+
+static void print_type_pointer(struct print_state *state, struct bcc_ast_type *type)
+{
+    print_state_out(state, "TYPE: pointer:\n");
+    bcc_ast_type_print(state, type->inner);
+}
+
+static void (*print_type_table[BCC_AST_TYPE_MAX]) (struct print_state *, struct bcc_ast_type *) = {
+    [BCC_AST_TYPE_PRIM] = print_type_prim,
+    [BCC_AST_TYPE_POINTER] = print_type_pointer,
+};
+
+static void bcc_ast_type_print(struct print_state *state, struct bcc_ast_type *type)
+{
+    void (*print_func)(struct print_state *, struct bcc_ast_type *);
+
+    print_func = print_type_table[type->node_type];
+
+    state->indent++;
+    (print_func) (state, type);
+    state->indent--;
 }
 

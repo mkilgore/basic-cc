@@ -21,4 +21,11 @@ static inline void bae_cast_init(struct bae_cast *cast)
     *cast = (struct bae_cast)BAE_CAST_INIT(*cast);
 }
 
+static inline struct bae_cast *create_bae_cast(void)
+{
+    struct bae_cast *cast = malloc(sizeof(*cast));
+    bae_cast_init(cast);
+    return cast;
+}
+
 #endif

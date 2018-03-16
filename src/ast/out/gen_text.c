@@ -124,6 +124,26 @@ static void print_node_return(struct bcc_ast_entry *ent, FILE *out)
     fprintf(out, ";\n");
 }
 
+static void print_node_while(struct bcc_ast_entry *ent, FILE *out)
+{
+    struct bae_while *w = container_of(ent, struct bae_while, ent);
+    fprintf(out, "while (");
+    bcc_ast_entry_print(w->condition, out);
+    fprintf(out, ") {\n");
+    bcc_ast_entry_print(w->block, out);
+    fprintf(out, "}\n");
+}
+
+static void print_node_cast(struct bcc_ast_entry *ent, FILE *out)
+{
+    struct bae_cast *cast = container_of(ent, struct bae_cast, ent);
+    fprintf(out, "(");
+    fprintf(out, "type_name");
+    fprintf(out, ")(");
+    bcc_ast_entry_print(cast->expr, out);
+    fprintf(out, ")");
+}
+
 static void (*print_node_table[BCC_AST_NODE_MAX])(struct bcc_ast_entry *, FILE *) = {
     [BCC_AST_NODE_LITERAL_NUMBER] = print_node_literal_number,
     [BCC_AST_NODE_LITERAL_STRING] = print_node_literal_string,
@@ -136,6 +156,8 @@ static void (*print_node_table[BCC_AST_NODE_MAX])(struct bcc_ast_entry *, FILE *
     [BCC_AST_NODE_BLOCK] = print_node_block,
     [BCC_AST_NODE_ASSIGN] = print_node_assign,
     [BCC_AST_NODE_RETURN] = print_node_return,
+    [BCC_AST_NODE_WHILE] = print_node_while,
+    [BCC_AST_NODE_CAST] = print_node_cast,
 };
 
 static void bcc_ast_entry_print(struct bcc_ast_entry *ent, FILE *out)

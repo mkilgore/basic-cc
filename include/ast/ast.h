@@ -44,6 +44,9 @@ struct bcc_ast {
     int function_count;
     list_head_t function_list;
 
+    int next_string_id;
+    list_head_t literal_string_list;
+
     int type_count;
     struct bcc_ast_type *types;
 
@@ -63,6 +66,7 @@ struct bcc_ast {
 #define BCC_AST_INIT(ast) \
     { \
         .function_list = LIST_HEAD_INIT((ast).function_list), \
+        .literal_string_list = LIST_HEAD_INIT((ast).literal_string_list), \
         .type_object_pool = OBJECT_POOL_INIT(sizeof(struct bcc_ast_type), BCC_AST_TYPE_POOL_SIZE), \
     }
 
@@ -87,6 +91,7 @@ enum bcc_ast_out_format {
 
 struct bae_block;
 struct bae_function;
+struct bae_literal_string;
 struct bcc_ast_variable;
 
 void bcc_ast_out(struct bcc_ast *ast, FILE *out, enum bcc_ast_out_format);
@@ -95,5 +100,6 @@ struct bcc_ast_entry *bcc_ast_convert_to_rvalue(struct bcc_ast_entry *lvalue);
 struct bcc_ast_variable *bcc_ast_find_variable(struct bcc_ast *ast, struct bae_block *scope, const char *name);
 struct bae_function *bcc_ast_find_function(struct bcc_ast *ast, const char *name);
 void bcc_ast_add_function(struct bcc_ast *ast, struct bae_function *func);
+void bcc_ast_add_literal_string(struct bcc_ast *ast, struct bae_literal_string *lit_str);
 
 #endif
