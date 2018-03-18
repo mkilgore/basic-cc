@@ -20,5 +20,6 @@
 #include "ast/nodes/func_call.h"
 #include "ast/nodes/while.h"
 #include "ast/nodes/cast.h"
+#include "ast/nodes/var.h"
 
 #endif

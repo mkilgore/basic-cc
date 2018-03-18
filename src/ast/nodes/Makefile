@@ -14,3 +14,5 @@ objs-y += unary_op.o
 objs-y += var_load.o
 objs-y += var_store.o
 objs-y += while.o
+objs-y += var.o
+

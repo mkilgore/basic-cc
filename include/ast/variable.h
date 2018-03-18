@@ -12,8 +12,16 @@ struct bcc_ast_variable {
     char *name;
     struct bcc_ast_type *type;
 
+    /* Used for list of variables within a function */
     list_node_t func_entry;
+    /* Used for list of variables within a block */
     list_node_t block_entry;
+
+    /* Used if this is a temporary variable used by the compiler
+     * Note they are all the same size, a pointer length. */
+    list_node_t func_temp_entry;
+
+    /* Used for temporary list in the parser */
     list_node_t temp_entry;
 
     /* Note the offset is from the current stack frame

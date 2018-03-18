@@ -6,8 +6,9 @@
 
 struct bae_assign {
     struct bcc_ast_entry ent;
-    struct bcc_ast_entry *lvalue;
+    struct bcc_ast_entry *optional_expr;
     struct bcc_ast_entry *rvalue;
+    struct bcc_ast_entry *lvalue;
 };
 
 void bae_assign_clear(struct bcc_ast_entry *);

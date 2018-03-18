@@ -11,6 +11,10 @@ struct bae_function {
     list_head_t local_variable_list;
     list_head_t param_list;
 
+    list_head_t compiler_temp_var_list;
+    int compiler_temps_total;
+    int compiler_temps_in_use;
+
     uint8_t has_ellipsis;
 
     char *name;
@@ -27,6 +31,7 @@ void bae_function_clear(struct bcc_ast_entry *);
         .function_entry = LIST_NODE_INIT((e).function_entry), \
         .local_variable_list = LIST_HEAD_INIT((e).local_variable_list), \
         .param_list = LIST_HEAD_INIT((e).param_list), \
+        .compiler_temp_var_list = LIST_HEAD_INIT((e).compiler_temp_var_list), \
     }
 
 static inline void bae_function_init(struct bae_function *f, char *name)
@@ -40,5 +45,8 @@ static inline struct bae_function *create_bae_function(char *name)
     bae_function_init(func, name);
     return func;
 }
+
+struct bcc_ast_variable *bae_function_get_temp_var(struct bae_function *func);
+void bae_function_put_temp_var(struct bae_function *func, struct bcc_ast_variable *var);
 
 #endif

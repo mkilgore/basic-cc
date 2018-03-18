@@ -74,24 +74,26 @@ void bcc_ast_out(struct bcc_ast *ast, FILE *out, enum bcc_ast_out_format format)
     }
 }
 
-/* This takes an lvalue and, if possible, converts it into an rvalue that will
- * read the location instead of store to it
- */
-struct bcc_ast_entry *bcc_ast_convert_to_rvalue(struct bcc_ast_entry *lvalue)
+bool bcc_ast_entry_is_lvalue(struct bcc_ast_entry *ent)
 {
-    struct bae_var_load *load;
-    struct bae_var_store *store;
+    struct bae_unary_op *uop;
 
-    switch (lvalue->type) {
-    case BCC_AST_NODE_VAR_STORE:
-        store = container_of(lvalue, struct bae_var_store, ent);
-        load = create_bae_var_load();
-        load->var = store->var;
-        load->ent.node_type = load->var->type;
-        return &load->ent;
+    switch (ent->type) {
+    case BCC_AST_NODE_VAR:
+        return true;
+
+    case BCC_AST_NODE_UNARY_OP:
+        uop = container_of(ent, struct bae_unary_op, ent);
+        switch (uop->op) {
+        case BCC_AST_UNARY_OP_DEREF:
+            return true;
+
+        default:
+            return false;
+        }
 
     default:
-        return NULL;
+        return false;
     }
 }
 

@@ -73,7 +73,13 @@ bool bcc_ast_type_are_identical(struct bcc_ast_type *first, struct bcc_ast_type 
 int bcc_ast_type_are_compatible(struct bcc_ast_type *first, struct bcc_ast_type *second);
 char *bcc_ast_type_get_name(struct bcc_ast_type *type);
 
+bool bcc_ast_type_is_void_pointer(struct bcc_ast_type *);
 bool bcc_ast_type_is_integer(struct bcc_ast_type *);
+
+static inline bool bcc_ast_type_is_primitive(struct bcc_ast_type *type)
+{
+    return type->node_type == BCC_AST_TYPE_PRIM;
+}
 
 static inline bool bcc_ast_type_is_pointer(struct bcc_ast_type *type)
 {
@@ -83,6 +89,6 @@ static inline bool bcc_ast_type_is_pointer(struct bcc_ast_type *type)
 struct bcc_ast_type *bcc_ast_type_integer_promotion(struct bcc_ast_type *first, struct bcc_ast_type *second);
 
 /* Checks for an implicit cast between 'first' and 'second'.  */
-struct bcc_ast_type *bcc_ast_type_implicit_cast_exists(struct bcc_ast_type *first, struct bcc_ast_type *second);
+bool bcc_ast_type_implicit_cast_exists(struct bcc_ast_type *current, struct bcc_ast_type *target);
 
 #endif

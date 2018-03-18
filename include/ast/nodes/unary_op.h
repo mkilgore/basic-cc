@@ -6,14 +6,25 @@
 
 enum bcc_ast_unary_op {
     BCC_AST_UNARY_OP_PLUSPLUS,
-    BCC_AST_UNARY_OP_ADDR_OF,
+    BCC_AST_UNARY_OP_MINUSMINUS,
+    BCC_AST_UNARY_OP_PLUSPLUS_POSTFIX,
+    BCC_AST_UNARY_OP_MINUSMINUS_POSTFIX,
+    BCC_AST_UNARY_OP_PLUS,
+    BCC_AST_UNARY_OP_MINUS,
+    BCC_AST_UNARY_OP_ADDRESS_OF,
     BCC_AST_UNARY_OP_DEREF,
+    BCC_AST_UNARY_OP_NOT,
+    BCC_AST_UNARY_OP_BITWISE_NOT,
+    BCC_AST_UNARY_OP_MAX,
 };
 
 struct bae_unary_op {
     struct bcc_ast_entry ent;
-    enum bcc_ast_binary_op op;
+    enum bcc_ast_unary_op op;
     struct bcc_ast_entry *expr;
+
+    /* lvalue is used for plusplus/minusminus/addressof */
+    struct bcc_ast_entry *lvalue;
 };
 
 void bae_unary_op_clear(struct bcc_ast_entry *);

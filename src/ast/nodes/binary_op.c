@@ -20,6 +20,9 @@ static const char *binary_op_str_table[] = {
     [BCC_AST_BINARY_OP_BITWISE_XOR]        = "^",
     [BCC_AST_BINARY_OP_LOGICAL_OR]         = "||",
     [BCC_AST_BINARY_OP_LOGICAL_AND]        = "&&",
+    [BCC_AST_BINARY_OP_ADDR_ADD_INDEX]     = "+",
+    [BCC_AST_BINARY_OP_ADDR_SUB_INDEX]     = "-",
+    [BCC_AST_BINARY_OP_ADDR_SUB]           = "-",
 };
 
 const char *binary_op_string(enum bcc_ast_binary_op bin_op)

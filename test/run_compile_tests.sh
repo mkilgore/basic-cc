@@ -12,6 +12,8 @@ rm $TMP/*
 i=0
 FAILURE=0
 
+USE_VALGRIND=0
+
 for f in ./test/compile_test/*.bcc; do
     i=$((i + 1))
     ./bin/basic-cc --gen assembler $f -o $TMP/basic-cc_output$i > $TMP/basic-cc_result$i 2> $TMP/basic-cc_result_err$i
@@ -51,9 +53,13 @@ for f in ./test/output_test/*.bcc; do
             echo -e "[$i] $f: \e[31mFAIL\e[0m"
             echo "  - Did not assemble:"
         else
-            valgrind --quiet --error-exitcode=1 \
-                --leak-check=full --show-possibly-lost=yes --show-reachable=yes \
+            if [[ $USE_VALGRIND != 0 ]]; then
+                valgrind --quiet --error-exitcode=1 \
+                    --leak-check=full --show-possibly-lost=yes --show-reachable=yes \
+                    ./test/bin/test$i > $TMP/basic-cc_result$i
+            else
                 ./test/bin/test$i > $TMP/basic-cc_result$i
+            fi
             let exit_code=$?
 
             if [[ $exit_code == 0 ]] && cmp --silent $TMP/basic-cc_result$i $f.output; then

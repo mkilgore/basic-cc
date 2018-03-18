@@ -33,11 +33,11 @@ static inline void temp_list_init(struct temp_list *t)
     } while (0)
 
 static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right);
-static struct bcc_ast_entry *create_assignment(struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op);
+static struct bcc_ast_entry *create_assignment(struct bcc_parser_state *, struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op);
 
 #define ASSIGNMENT(lval, rval, loc, bin_op) \
     ({ \
-        struct bcc_ast_entry *assignment = create_assignment((lval), (rval), (bin_op)); \
+        struct bcc_ast_entry *assignment = create_assignment(state, (lval), (rval), (bin_op)); \
         if (!assignment) { \
             char *str1, *str2; \
             char buf[2048]; \
@@ -51,6 +51,21 @@ static struct bcc_ast_entry *create_assignment(struct bcc_ast_entry *lvalue, str
         assignment; \
     })
 
+#define BIN_OP(op, lval, rval, loc) \
+    ({ \
+        struct bcc_ast_entry *bin_op = create_bin_from_components((op), (lval), (rval)); \
+        if (!bin_op) { \
+            char *str1, *str2; \
+            char buf[2048]; \
+            str1 = bcc_ast_type_get_name(lval->node_type); \
+            str2 = bcc_ast_type_get_name(rval->node_type); \
+            snprintf(buf, sizeof(buf), "Type of left expression (%s) not compatible with type of right expression (%s)", str1, str2); \
+            free(str1); \
+            free(str2); \
+            ABORT_WITH_ERROR(&(loc), buf); \
+        } \
+        bin_op; \
+    })
 %}
 
 %code requires {
@@ -120,7 +135,7 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 
 %locations
 
-%token <str> TOK_IDENT TOK_FUNCTION TOK_STRING
+%token <str> TOK_IDENT TOK_STRING
 %token <ival> TOK_NUMBER
 
 %token TOK_NOT_EQUAL          "!="
@@ -155,7 +170,9 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 
 %token TOK_IF TOK_ELSE
 
-%type <entry> lvalue expression statement block optional_block function function_declaration
+%type <entry> expression statement block optional_block function function_declaration
+%type <entry> assignment_expression inner_expression unary_expression unary_postfix_expression paren_expression
+
 %type <param> parameter
 
 %type <ival> parameter_list_optional_ellipsis parameter_list_or_empty
@@ -169,13 +186,15 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 %type <type> type_name
 %type <declarator> type_direct_declarator type_declarator type_name_optional_ident
 
-%nonassoc "then"
-%nonassoc TOK_ELSE
-%nonassoc "load"
+/* %type <bin_op> assignment_operator */
 
-%left ','
-%right "assignment" /* All assignment statements have the same precedence */
-%right "ternary"
+%precedence "then"
+%precedence TOK_ELSE
+/* %nonassoc "load" */
+
+/* %left ',' */
+%right '=' "+=" "-=" "*=" "/=" "%=" "&=" "|=" "^=" ">>=" "<<=" /* All assignment statements have the same precedence */
+/* %right "ternary" */
 %left TOK_LOGICAL_OR
 %left TOK_LOGICAL_AND
 %left '|'
@@ -186,8 +205,8 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 %left TOK_SHIFTRIGHT TOK_SHIFTLEFT
 %left '+' '-'
 %left '*' '/' '%'
-%right '!' '~' TOK_PLUSPLUS TOK_MINUSMINUS "unary_plus" "unary_minus" "dereference" "addressof" "cast"
-%left "plusplus-postfix" "minusminus-postfix"
+/* %right '!' '~' "plusplus-prefix" "minusminus-prefix" "unary_plus" "unary_minus" "dereference" "addressof" "cast" */
+/* %left "plusplus-postfix" "minusminus-postfix" "function-call" */
 
 %start basic_cc_file
 
@@ -305,15 +324,6 @@ string
         $$ = newstr;
     }
 
-lvalue
-    : TOK_IDENT {
-        struct bae_var_store *store = create_bae_var_store();
-        store->var = bcc_ast_find_variable(ast, state->current_scope, $1);
-        store->ent.node_type = store->var->type;
-        free($1);
-        $$ = &store->ent;
-    }
-
 function_arg_list
     : expression {
         struct temp_list *lst = malloc(sizeof(*lst));
@@ -331,8 +341,19 @@ function_arg_list_or_empty
     : %empty { $$ = NULL; }
     | function_arg_list
 
-expression
+paren_expression
     : '(' expression ')' { $$ = $2; }
+    | TOK_IDENT {
+        struct bae_var *var = create_bae_var();
+        var->var = bcc_ast_find_variable(ast, state->current_scope, $1);
+
+        if (!var->var)
+            ABORT_WITH_ERROR(&@1, "Unknown variable name");
+
+        var->ent.node_type = var->var->type;
+        free($1);
+        $$ = &var->ent;
+    }
     | TOK_NUMBER {
         struct bae_literal_number *lit_num = create_bae_literal_number($1);
         lit_num->ent.node_type = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
@@ -345,7 +366,30 @@ expression
         bcc_ast_add_literal_string(ast, lit_str);
         $$ = &lit_str->ent;
     }
-    | TOK_FUNCTION '(' function_arg_list_or_empty ')' {
+
+unary_postfix_expression
+    : paren_expression
+    | unary_postfix_expression "--" %prec "minusminus-postfix" {
+        if (!bcc_ast_entry_is_lvalue($1))
+            ABORT_WITH_ERROR(&@1, "Left of decrement is not an lvalue");
+
+        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_MINUSMINUS_POSTFIX);
+        op->lvalue = $1;
+        op->expr = op->lvalue;
+        op->ent.node_type = $1->node_type;
+        $$ = &op->ent;
+    }
+    | unary_postfix_expression "++" %prec "plusplus-postfix" {
+        if (!bcc_ast_entry_is_lvalue($1))
+            ABORT_WITH_ERROR(&@1, "Left of increment is not an lvalue");
+
+        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_PLUSPLUS_POSTFIX);
+        op->lvalue = $1;
+        op->expr = op->lvalue;
+        op->ent.node_type = $1->node_type;
+        $$ = &op->ent;
+    }
+    | TOK_IDENT '(' function_arg_list_or_empty ')' %prec "function-call" {
         struct bae_func_call *call = create_bae_func_call();
         call->func = bcc_ast_find_function(ast, $1);
         call->ent.node_type = call->func->ret_type;
@@ -359,17 +403,80 @@ expression
 
         $$ = &call->ent;
     }
-    | TOK_IDENT %prec "load" {
-        struct bae_var_load *var = create_bae_var_load();
-        var->var = bcc_ast_find_variable(ast, state->current_scope, $1);
-        if (!var->var)
-            ABORT_WITH_ERROR(&@1, "Unknown variable name");
+    
 
-        var->ent.node_type = var->var->type;
-        free($1);
-        $$ = &var->ent;
+unary_expression
+    : unary_postfix_expression
+    | '-' unary_expression {
+        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_MINUS);
+        op->expr = $2;
+        op->ent.node_type = $2->node_type;
+        $$ = &op->ent;
     }
-    | '(' type_name ')' expression %prec "cast" { 
+    | '+' unary_expression {
+        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_PLUS);
+        op->expr = $2;
+        op->ent.node_type = $2->node_type;
+        $$ = &op->ent;
+    }
+    | "--" unary_expression {
+        if (!bcc_ast_entry_is_lvalue($2))
+            ABORT_WITH_ERROR(&@1, "Right of decrement is not an lvalue");
+
+        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_MINUSMINUS);
+        op->lvalue = $2;
+        op->expr = op->lvalue;
+        op->ent.node_type = $2->node_type;
+        $$ = &op->ent;
+    }
+    | "++" unary_expression {
+        if (!bcc_ast_entry_is_lvalue($2))
+            ABORT_WITH_ERROR(&@1, "Right of increment is not an lvalue");
+
+        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_PLUSPLUS);
+        op->lvalue = $2;
+        op->expr = op->lvalue;
+        op->ent.node_type = $2->node_type;
+        $$ = &op->ent;
+    }
+    | '&' unary_expression {
+        if ($2->type == BCC_AST_NODE_UNARY_OP) {
+            struct bae_unary_op *uop = container_of($2, struct bae_unary_op, ent);
+            if (uop->op == BCC_AST_UNARY_OP_DEREF) {
+                $$ = uop->expr;
+                free(uop);
+            } else {
+                ABORT_WITH_ERROR(&@1, "Right of address-of is not an lvalue");
+            }
+        } else {
+            if (!bcc_ast_entry_is_lvalue($2))
+                ABORT_WITH_ERROR(&@1, "Right of address-of is not an lvalue");
+
+            struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_ADDRESS_OF);
+            op->lvalue = $2;
+            op->ent.node_type = create_bcc_ast_type_pointer(ast, $2->node_type);
+            $$ = &op->ent;
+        }
+    }
+    | '!' unary_expression {
+        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_NOT);
+        op->expr = $2;
+        op->ent.node_type = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
+        $$ = &op->ent;
+    }
+    | '~' unary_expression {
+        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_BITWISE_NOT);
+        op->expr = $2;
+        op->ent.node_type = $2->node_type;
+        $$ = &op->ent;
+    }
+    | '*' unary_expression {
+        struct bae_unary_op *uop = create_bae_unary_op(BCC_AST_UNARY_OP_DEREF);
+        uop->expr = $2;
+        uop->ent.node_type = $2->node_type->inner;
+        $$ = &uop->ent;
+    }
+    | '(' type_name ')' unary_expression {
         struct bcc_ast_type *target = $2;
         struct bcc_ast_type *start = $4->node_type;
         struct bae_cast *cast;
@@ -395,35 +502,44 @@ expression
         cast->ent.node_type = target;
         $$ = &cast->ent;
     }
-    | expression '+' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_PLUS, $1, $3); }
-    | expression '-' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_MINUS, $1, $3); }
-    | expression '*' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_MULT, $1, $3); }
-    | expression '/' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_DIV, $1, $3); }
-    | expression '%' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_MOD, $1, $3); }
-    | expression ">>" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_SHIFTRIGHT, $1, $3); }
-    | expression "<<" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_SHIFTLEFT, $1, $3); }
-    | expression '>' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_GREATER_THAN, $1, $3); }
-    | expression '<' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_LESS_THAN, $1, $3); }
-    | expression ">=" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_GREATER_THAN_EQUAL, $1, $3); }
-    | expression "<=" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_LESS_THAN_EQUAL, $1, $3); }
-    | expression "==" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_DOUBLEEQUAL, $1, $3); }
-    | expression "!=" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_NOT_EQUAL, $1, $3); }
-    | expression '&' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_BITWISE_AND, $1, $3); }
-    | expression '|' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_BITWISE_OR, $1, $3); }
-    | expression '^' expression  { $$ = create_bin_from_components(BCC_AST_BINARY_OP_BITWISE_XOR, $1, $3); }
-    | expression "&&" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_LOGICAL_AND, $1, $3); }
-    | expression "||" expression { $$ = create_bin_from_components(BCC_AST_BINARY_OP_LOGICAL_OR, $1, $3); }
-    | lvalue '=' expression %prec "assignment"   { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MAX); }
-    | lvalue "+=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_PLUS); }
-    | lvalue "-=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MINUS); }
-    | lvalue "*=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MULT); }
-    | lvalue "/=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_DIV); }
-    | lvalue "%=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MOD); }
-    | lvalue ">>=" expression %prec "assignment" { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_SHIFTRIGHT); }
-    | lvalue "<<=" expression %prec "assignment" { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_SHIFTLEFT); }
-    | lvalue "&=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_BITWISE_AND); }
-    | lvalue "|=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_BITWISE_OR); }
-    | lvalue "^=" expression %prec "assignment"  { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_BITWISE_XOR); }
+
+inner_expression
+    : unary_expression
+    | inner_expression '+'  inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_PLUS, $1, $3, @1); }
+    | inner_expression '-'  inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_MINUS, $1, $3, @1); }
+    | inner_expression '*'  inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_MULT, $1, $3, @1); }
+    | inner_expression '/'  inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_DIV, $1, $3, @1); }
+    | inner_expression '%'  inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_MOD, $1, $3, @1); }
+    | inner_expression ">>" inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_SHIFTRIGHT, $1, $3, @1); }
+    | inner_expression "<<" inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_SHIFTLEFT, $1, $3, @1); }
+    | inner_expression '>'  inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_GREATER_THAN, $1, $3, @1); }
+    | inner_expression '<'  inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_LESS_THAN, $1, $3, @1); }
+    | inner_expression ">=" inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_GREATER_THAN_EQUAL, $1, $3, @1); }
+    | inner_expression "<=" inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_LESS_THAN_EQUAL, $1, $3, @1); }
+    | inner_expression "==" inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_DOUBLEEQUAL, $1, $3, @1); }
+    | inner_expression "!=" inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_NOT_EQUAL, $1, $3, @1); }
+    | inner_expression '&'  inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_BITWISE_AND, $1, $3, @1); }
+    | inner_expression '|'  inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_BITWISE_OR, $1, $3, @1); }
+    | inner_expression '^'  inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_BITWISE_XOR, $1, $3, @1); }
+    | inner_expression "&&" inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_LOGICAL_AND, $1, $3, @1); }
+    | inner_expression "||" inner_expression { $$ = BIN_OP(BCC_AST_BINARY_OP_LOGICAL_OR, $1, $3, @1); }
+
+assignment_expression
+    : inner_expression
+    | assignment_expression '='   assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MAX); }
+    | assignment_expression "+="  assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_PLUS); }
+    | assignment_expression "-="  assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MINUS); }
+    | assignment_expression "*="  assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MULT); }
+    | assignment_expression "/="  assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_DIV); }
+    | assignment_expression "%="  assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_MOD); }
+    | assignment_expression ">>=" assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_SHIFTRIGHT); }
+    | assignment_expression "<<=" assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_SHIFTLEFT); }
+    | assignment_expression "&="  assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_BITWISE_AND); }
+    | assignment_expression "|="  assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_BITWISE_OR); }
+    | assignment_expression "^="  assignment_expression { $$ = ASSIGNMENT($1, $3, @1, BCC_AST_BINARY_OP_BITWISE_XOR); }
+
+expression
+    : assignment_expression
 
 declaration_optional_assignment
     : type_declarator {
@@ -443,8 +559,10 @@ declaration_optional_assignment
             var->type = state->declaration_type;
         }
 
+        if (var->type->node_type == BCC_AST_TYPE_PRIM && var->type->prim == BCC_AST_PRIM_VOID)
+            ABORT_WITH_ERROR(&@1, "Variable cannot be of type void");
+
         char *str1 = bcc_ast_type_get_name(var->type);
-        printf("Adding var %s: Type: %s\n", var->name, str1);
         free(str1);
 
         list_add_tail(&state->current_scope->variable_list, &var->block_entry);
@@ -467,15 +585,17 @@ declaration_optional_assignment
             var->type = state->declaration_type;
         }
 
+        if (var->type->node_type == BCC_AST_TYPE_PRIM && var->type->prim == BCC_AST_PRIM_VOID)
+            ABORT_WITH_ERROR(&@1, "Variable cannot be of type void");
+
         list_add_tail(&state->current_scope->variable_list, &var->block_entry);
         list_add_tail(&state->current_func->local_variable_list, &var->func_entry);
 
         char *str1 = bcc_ast_type_get_name(var->type);
-        printf("Adding var %s: Type: %s\n", var->name, str1);
         free(str1);
 
         /* Create a new assignment of the expression to the just created variable */
-        struct bae_var_store *store = create_bae_var_store();
+        struct bae_var *store = create_bae_var();
         store->var = var;
         store->ent.node_type = var->type;
 
@@ -496,9 +616,6 @@ declaration_list
 
 declaration
     : type_specifier {
-        if ($1->node_type == BCC_AST_TYPE_PRIM && $1->prim == BCC_AST_PRIM_VOID)
-            ABORT_WITH_ERROR(&@1, "Variable cannot be of type void");
-
         state->declaration_type = $1;
         } declaration_list ';'
 
@@ -624,35 +741,196 @@ basic_cc_file
 
 %%
 
+static struct bcc_ast_entry *create_bin_ptr_op(enum bcc_ast_binary_op op, struct bcc_ast_entry *ptr, struct bcc_ast_entry *val, int ptr_is_first)
+{
+    size_t ptr_size = ptr->node_type->inner->size;
+
+    if (val->node_type->size < ptr_size) {
+        struct bae_cast *cast = create_bae_cast();
+        cast->expr = val;
+        cast->target = bcc_ast_type_primitives + BCC_AST_PRIM_LONG;
+        cast->ent.node_type = cast->target;
+
+        val = &cast->ent;
+    }
+
+    struct bae_binary_op *bin_op = create_bae_binary_op(op);
+    bin_op->operand_size = ptr_size;
+    bin_op->ent.node_type = ptr->node_type;
+
+    if (ptr_is_first) {
+        bin_op->left = ptr;
+        bin_op->right = val;
+    } else {
+        bin_op->left = val;
+        bin_op->right = ptr;
+    }
+
+    return &bin_op->ent;
+}
+
+static struct bcc_ast_entry *create_ptr_bin_from_components(enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right)
+{
+    struct bae_binary_op *bin_op;
+
+    /* Verify that one side is a pointer, and one side is an integer */
+    switch (op) {
+    case BCC_AST_BINARY_OP_PLUS:
+        if (bcc_ast_type_is_pointer(left->node_type) && bcc_ast_type_is_integer(right->node_type)) {
+            return create_bin_ptr_op(BCC_AST_BINARY_OP_ADDR_ADD_INDEX, left, right, 1);
+        } else if (bcc_ast_type_is_pointer(right->node_type) && bcc_ast_type_is_integer(left->node_type)) {
+            return create_bin_ptr_op(BCC_AST_BINARY_OP_ADDR_ADD_INDEX, left, right, 0);
+        } else {
+            return NULL;
+        }
+        break;
+
+    case BCC_AST_BINARY_OP_MINUS:
+        if (bcc_ast_type_is_pointer(left->node_type) && bcc_ast_type_is_integer(right->node_type)) {
+            return create_bin_ptr_op(BCC_AST_BINARY_OP_ADDR_SUB_INDEX, left, right, 1);
+        } else if (bcc_ast_type_is_pointer(right->node_type) && bcc_ast_type_is_integer(left->node_type)) {
+            return create_bin_ptr_op(BCC_AST_BINARY_OP_ADDR_SUB_INDEX, left, right, 0);
+        } else if (bcc_ast_type_is_pointer(right->node_type) && bcc_ast_type_is_pointer(left->node_type)) {
+            struct bae_binary_op *bin_op = create_bae_binary_op(BCC_AST_BINARY_OP_ADDR_SUB);
+            bin_op->operand_size = bae_size(right);
+            bin_op->left = left;
+            bin_op->right = right;
+            bin_op->ent.node_type = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
+            return &bin_op->ent;
+        } else {
+            return NULL;
+        }
+        break;
+
+    case BCC_AST_BINARY_OP_GREATER_THAN:
+    case BCC_AST_BINARY_OP_GREATER_THAN_EQUAL:
+    case BCC_AST_BINARY_OP_LESS_THAN:
+    case BCC_AST_BINARY_OP_LESS_THAN_EQUAL:
+    case BCC_AST_BINARY_OP_NOT_EQUAL:
+    case BCC_AST_BINARY_OP_DOUBLEEQUAL:
+        bin_op = create_bae_binary_op(op);
+
+        bin_op->left = left;
+        bin_op->right = right;
+        bin_op->ent.node_type = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
+        return &bin_op->ent;
+
+    default:
+        return NULL;
+    }
+}
+
 static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right)
 {
+    if (bcc_ast_type_is_pointer(left->node_type) || bcc_ast_type_is_pointer(right->node_type))
+        return create_ptr_bin_from_components(op, left, right);
+
+    if (bcc_ast_type_is_integer(left->node_type) && bcc_ast_type_is_integer(right->node_type)) {
+        size_t size_left = bae_size(left);
+        size_t size_right = bae_size(right);
+
+        if (size_left < size_right) {
+            struct bae_cast *cast = create_bae_cast();
+            cast->expr = left;
+            cast->target = right->node_type;
+            cast->ent.node_type = cast->target;
+
+            left = &cast->ent;
+        } else if (size_right < size_left) {
+            struct bae_cast *cast = create_bae_cast();
+            cast->expr = right;
+            cast->target = left->node_type;
+            cast->ent.node_type = cast->target;
+
+            right = &cast->ent;
+        }
+    }
+
     struct bae_binary_op *bin_op = create_bae_binary_op(op);
+
     bin_op->left = left;
     bin_op->right = right;
-
-    /* DO TYPE COMPATIBILITY CHECK AND UPCASTING HERE */
     bin_op->ent.node_type = bin_op->left->node_type;
     return &bin_op->ent;
 }
 
-static struct bcc_ast_entry *create_assignment(struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op)
+static struct bcc_ast_entry *create_assignment(struct bcc_parser_state *state, struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op)
 {
-    if (bin_op != BCC_AST_BINARY_OP_MAX) {
-        struct bcc_ast_entry *val = bcc_ast_convert_to_rvalue(lvalue);
-        if (!val)
-            return NULL;
+    struct bcc_ast_variable *temp_var = NULL;
+    struct bcc_ast_entry *optional_expr = NULL;
 
-        rvalue = create_bin_from_components(bin_op, val, rvalue);
+    if (bin_op != BCC_AST_BINARY_OP_MAX) {
+        struct bae_var *v;
+        struct bae_var *old;
+
+        switch (lvalue->type) {
+        case BCC_AST_NODE_VAR:
+            old = container_of(lvalue, struct bae_var, ent);
+            v = create_bae_var();
+            v->var = old->var;
+            v->ent.node_type = old->ent.node_type;
+
+            rvalue = create_bin_from_components(bin_op, &v->ent, rvalue);
+            if (!rvalue)
+                return NULL;
+
+            break;
+
+        default:
+            printf("Not compatible lvalue: %d\n", lvalue->type);
+            return NULL;
+        }
+    /*
+        struct bae_assign *a = create_bae_assign();
+        struct bae_var *v = create_bae_var();
+        temp_var = bae_function_get_temp_var(state->current_func);
+
+        v->var = temp_var;
+        v->ent.node_type = lvalue->node_type;
+
+        a->rvalue = lvalue;
+        a->lvalue = &v->ent;
+        a->ent.node_type = lvalue->node_type;
+
+        optional_expr = &a->ent;
+
+        v = create_bae_var();
+        v->var = temp_var;
+        v->ent.node_type = lvalue->node_type;
+
+        rvalue = create_bin_from_components(bin_op, &v->ent, rvalue);
+
+        */
+
+/*
+        v = create_bae_var();
+        v->var = temp_var;
+        v->ent.node_type = lvalue->node_type;
+
+        lvalue = &v->ent;
+        */
+    }
+
+    if (!bcc_ast_type_are_identical(lvalue->node_type, rvalue->node_type)) {
+        if (!bcc_ast_type_implicit_cast_exists(rvalue->node_type, lvalue->node_type))
+            return false;
+
+        struct bae_cast *cast = create_bae_cast();
+        cast->expr = rvalue;
+        cast->target = lvalue->node_type;
+
+        rvalue = &cast->ent;
     }
 
     struct bae_assign *assign = create_bae_assign();
+    assign->optional_expr = optional_expr;
     assign->lvalue = lvalue;
     assign->rvalue = rvalue;
-
-    if (!bcc_ast_type_are_identical(lvalue->node_type, rvalue->node_type))
-        return NULL;
-
     assign->ent.node_type = assign->lvalue->node_type;
+
+    if (temp_var)
+        bae_function_put_temp_var(state->current_func, temp_var);
+
     return &assign->ent;
 }
 

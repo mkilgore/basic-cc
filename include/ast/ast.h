@@ -2,6 +2,7 @@
 #define INCLUDE_AST_AST_H
 
 #include <stdio.h>
+#include <stdbool.h>
 #include "list.h"
 #include "type.h"
 #include "object_pool.h"
@@ -16,6 +17,7 @@ enum bcc_ast_node_type {
     BCC_AST_NODE_FUNCTION,
     BCC_AST_NODE_BLOCK,
     BCC_AST_NODE_RETURN,
+    BCC_AST_NODE_VAR,
     BCC_AST_NODE_VAR_LOAD,
     BCC_AST_NODE_VAR_STORE,
     BCC_AST_NODE_ASSIGN,
@@ -39,6 +41,11 @@ struct bcc_ast_entry {
         .entry = LIST_NODE_INIT((e).entry), \
         .clear = (cle), \
     }
+
+static inline size_t bae_size(struct bcc_ast_entry *ent)
+{
+    return ent->node_type->size;
+}
 
 struct bcc_ast {
     int function_count;
@@ -96,10 +103,11 @@ struct bcc_ast_variable;
 
 void bcc_ast_out(struct bcc_ast *ast, FILE *out, enum bcc_ast_out_format);
 int bcc_ast_parse(struct bcc_ast *ast, FILE *in);
-struct bcc_ast_entry *bcc_ast_convert_to_rvalue(struct bcc_ast_entry *lvalue);
 struct bcc_ast_variable *bcc_ast_find_variable(struct bcc_ast *ast, struct bae_block *scope, const char *name);
 struct bae_function *bcc_ast_find_function(struct bcc_ast *ast, const char *name);
 void bcc_ast_add_function(struct bcc_ast *ast, struct bae_function *func);
 void bcc_ast_add_literal_string(struct bcc_ast *ast, struct bae_literal_string *lit_str);
+
+bool bcc_ast_entry_is_lvalue(struct bcc_ast_entry *);
 
 #endif

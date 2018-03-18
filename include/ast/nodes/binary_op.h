@@ -28,13 +28,21 @@ enum bcc_ast_binary_op {
     BCC_AST_BINARY_OP_LOGICAL_OR,
     BCC_AST_BINARY_OP_LOGICAL_AND,
 
+    BCC_AST_BINARY_OP_ADDR_ADD_INDEX, /* This is addition/subtraction of pointer with an integer */
+    BCC_AST_BINARY_OP_ADDR_SUB_INDEX,
+
+    BCC_AST_BINARY_OP_ADDR_SUB, /* This is subtraction of two pointers */
+
     BCC_AST_BINARY_OP_MAX
 };
 
 struct bae_binary_op {
     struct bcc_ast_entry ent;
     enum bcc_ast_binary_op op;
+
     struct bcc_ast_entry *left, *right;
+
+    size_t operand_size;
 };
 
 void bae_binary_op_clear(struct bcc_ast_entry *);

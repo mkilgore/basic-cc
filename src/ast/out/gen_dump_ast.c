@@ -104,6 +104,13 @@ static void print_node_function(struct print_state *state, struct bcc_ast_entry 
         print_state_out(state, "PARAM: %s\n", var->name);
     }
 
+    list_foreach_entry(&func->local_variable_list, var, func_entry) {
+        if (var->name)
+            print_state_out(state, "VAR: \"%s\"\n", var->name);
+        else
+            print_state_out(state, "VAR: Temporary\n");
+    }
+
     if (func->block)
         bcc_ast_entry_print(state, func->block);
 }
@@ -142,6 +149,11 @@ static void print_node_assign(struct print_state *state, struct bcc_ast_entry *e
 
     print_state_out(state, "BCC_AST_NODE_ASSIGN\n");
 
+    if (assign->optional_expr) {
+        print_state_out(state, "OPTIONAL_EXPR:\n");
+        bcc_ast_entry_print(state, assign->optional_expr);
+    }
+
     print_state_out(state, "LVALUE:\n");
     bcc_ast_entry_print(state, assign->lvalue);
 
@@ -176,6 +188,15 @@ static void print_node_cast(struct print_state *state, struct bcc_ast_entry *ent
     bcc_ast_entry_print(state, cast->expr);
 }
 
+static void print_node_var(struct print_state *state, struct bcc_ast_entry *ent)
+{
+    struct bae_var *var = container_of(ent, struct bae_var, ent);
+    if (var->var->name)
+        print_state_out(state, "BCC_AST_NODE_VAR: \"%s\"\n", var->var->name);
+    else
+        print_state_out(state, "BCC_AST_NODE_VAR: Temporary\n", var->var->name);
+}
+
 static void (*print_node_table[BCC_AST_NODE_MAX])(struct print_state *, struct bcc_ast_entry *) = {
     [BCC_AST_NODE_LITERAL_NUMBER] = print_node_literal_number,
     [BCC_AST_NODE_LITERAL_STRING] = print_node_literal_string,
@@ -191,6 +212,7 @@ static void (*print_node_table[BCC_AST_NODE_MAX])(struct print_state *, struct b
     [BCC_AST_NODE_RETURN] = print_node_return,
     [BCC_AST_NODE_WHILE] = print_node_while,
     [BCC_AST_NODE_CAST] = print_node_cast,
+    [BCC_AST_NODE_VAR] = print_node_var,
 };
 
 static void bcc_ast_entry_print(struct print_state *state, struct bcc_ast_entry *ent)

@@ -1,0 +1,11 @@
+
+int main()
+{
+    int x = 2;
+    int y = 5;
+    int z = 20;
+
+    x += y -= z;
+
+    return 0;
+}

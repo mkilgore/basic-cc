@@ -30,7 +30,7 @@ struct bcc_ast_type bcc_ast_type_char_ptr = {
 struct bcc_ast_type *create_bcc_ast_type(struct bcc_ast *ast)
 {
     struct bcc_ast_type *type = object_pool_get(&ast->type_object_pool);
-    bcc_ast_type_init(type);object_pool_get(&ast->type_object_pool);
+    bcc_ast_type_init(type);
     return type;
 }
 
@@ -51,7 +51,7 @@ bool bcc_ast_type_are_identical(struct bcc_ast_type *first, struct bcc_ast_type 
     return true;
 }
 
-bool is_void_pointer(struct bcc_ast_type *t)
+bool bcc_ast_type_is_void_pointer(struct bcc_ast_type *t)
 {
     if (t->node_type != BCC_AST_TYPE_POINTER)
         return false;
@@ -64,6 +64,24 @@ bool is_void_pointer(struct bcc_ast_type *t)
     return true;
 }
 
+bool bcc_ast_type_implicit_cast_exists(struct bcc_ast_type *current, struct bcc_ast_type *target)
+{
+    /* Pointers can be implicit cast to and from void * */
+    if (bcc_ast_type_is_void_pointer(current) && target->node_type == BCC_AST_TYPE_POINTER)
+        return true;
+
+    if (bcc_ast_type_is_void_pointer(target) && current->node_type == BCC_AST_TYPE_POINTER)
+        return true;
+
+    /* Casts between integers are always valid */
+    if (bcc_ast_type_is_integer(current) && bcc_ast_type_is_integer(target))
+        return true;
+
+    /* Else, an implicit cast does not exist */
+    return false;
+}
+
+#if 0
 /* Returns the resulting target type */
 struct bcc_ast_type *bcc_ast_type_implicit_cast_exists(struct bcc_ast_type *first, struct bcc_ast_type *second)
 {
@@ -81,6 +99,7 @@ struct bcc_ast_type *bcc_ast_type_implicit_cast_exists(struct bcc_ast_type *firs
     /* Int casts go here */
     return NULL;
 }
+#endif
 
 bool bcc_ast_type_is_integer(struct bcc_ast_type *type)
 {
@@ -101,7 +120,7 @@ bool bcc_ast_type_is_integer(struct bcc_ast_type *type)
 
 struct bcc_ast_type *bcc_ast_type_integer_promotion(struct bcc_ast_type *first, struct bcc_ast_type *second)
 {
-
+    return 0;
 }
 
 int bcc_ast_type_are_compatible(struct bcc_ast_type *first, struct bcc_ast_type *second)

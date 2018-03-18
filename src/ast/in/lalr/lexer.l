@@ -121,12 +121,6 @@ static void state_append_str(struct bcc_parser_state *state, char ch);
 [a-zA-Z_][a-zA-Z0-9_]* {
     yylval->str = strdup(yytext);
 
-    /* Chek if it is a function ID */
-    struct bae_function *func;
-    list_foreach_entry(&ast->function_list, func, function_entry)
-        if (strcmp(func->name, yylval->str) == 0)
-            return TOK_FUNCTION;
-
     return TOK_IDENT;
 }
 

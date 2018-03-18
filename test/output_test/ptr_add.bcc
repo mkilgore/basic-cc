@@ -1,0 +1,15 @@
+
+int puts(char *);
+
+int main()
+{
+    char *str = "ABCDEFG";
+    char *end = str + 8;
+
+    while (str < end) {
+        puts(str);
+        str += 1;
+    }
+
+    return 0;
+}
