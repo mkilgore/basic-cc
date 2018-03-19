@@ -1,0 +1,13 @@
+
+int printf(const char *, ...);
+
+int main()
+{
+    int i = 20;
+    int *j = &i;
+
+    printf("%d", *j);
+
+    return 0;
+}
+

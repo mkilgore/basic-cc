@@ -1,0 +1,6 @@
+
+int main()
+{
+    const const int i = 2;
+}
+

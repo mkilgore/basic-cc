@@ -46,19 +46,28 @@ static void gen_node_logical_op(struct gen_state *state, struct bae_binary_op *o
     gen_out(state, ".L_LOGICAL_OP%d:\n", label);
 }
 
-static void gen_div_reg_extend(struct gen_state *state, size_t size)
+static void gen_div_reg_extend(struct gen_state *state, size_t size, bool is_unsigned)
 {
     switch (size) {
     case 1:
-        gen_out(state, "    cbtw\n");
+        if (!is_unsigned)
+            gen_out(state, "    cbtw\n");
+        else
+            gen_out(state, "    xor %%ah, %%ah\n");
         break;
 
     case 2:
-        gen_out(state, "    cwtd\n");
+        if (!is_unsigned)
+            gen_out(state, "    cwtd\n");
+        else
+            gen_out(state, "    xor %%dx, %%dx\n");
         break;
 
     case 4:
-        gen_out(state, "    cltd\n");
+        if (!is_unsigned)
+            gen_out(state, "    cltd\n");
+        else
+            gen_out(state, "    xor %%edx, %%edx\n");
         break;
     }
 }
@@ -68,6 +77,7 @@ static void gen_node_binary_op(struct gen_state *state, struct bcc_ast_entry *en
     struct bae_binary_op *bin_op = container_of(ent, struct bae_binary_op, ent);
     size_t left_size, right_size;
     char left_reg, right_reg;
+    bool is_unsigned;
 
     if (bin_op->op == BCC_AST_BINARY_OP_LOGICAL_AND || bin_op->op == BCC_AST_BINARY_OP_LOGICAL_OR) {
         gen_node_logical_op(state, bin_op);
@@ -85,6 +95,8 @@ static void gen_node_binary_op(struct gen_state *state, struct bcc_ast_entry *en
     right_reg = 'a';
     right_size = bae_size(bin_op->right);
 
+    is_unsigned = bcc_ast_type_is_unsigned(bin_op->left->node_type);
+
     switch (bin_op->op) {
     case BCC_AST_BINARY_OP_PLUS:
         gen_out(state, "    add %r, %r\n", REG_ARG(left_reg, left_size), REG_ARG(right_reg, right_size));
@@ -101,13 +113,13 @@ static void gen_node_binary_op(struct gen_state *state, struct bcc_ast_entry *en
 
     case BCC_AST_BINARY_OP_DIV:
         gen_out(state, "    xchg %r, %r\n", REG_ARG(right_reg, right_size), REG_ARG(left_reg, left_size));
-        gen_div_reg_extend(state, left_size);
+        gen_div_reg_extend(state, left_size, is_unsigned);
         gen_out(state, "    idiv %r\n", REG_ARG(left_reg, left_size));
         break;
 
     case BCC_AST_BINARY_OP_MOD:
         gen_out(state, "    xchg %r, %r\n", REG_ARG(right_reg, right_size), REG_ARG(left_reg, left_size));
-        gen_div_reg_extend(state, left_size);
+        gen_div_reg_extend(state, left_size, is_unsigned);
         gen_out(state, "    idiv %r\n", REG_ARG(left_reg, left_size));
         switch (left_size) {
         case 1:
@@ -126,7 +138,10 @@ static void gen_node_binary_op(struct gen_state *state, struct bcc_ast_entry *en
 
     case BCC_AST_BINARY_OP_SHIFTRIGHT:
         gen_out(state, "    mov %%al, %%cl\n");
-        gen_out(state, "    shr %%cl, %r\n", REG_ARG(left_reg, left_size));
+        if (is_unsigned)
+            gen_out(state, "    shr %%cl, %r\n", REG_ARG(left_reg, left_size));
+        else
+            gen_out(state, "    sar %%cl, %r\n", REG_ARG(left_reg, left_size));
         gen_out(state, "    mov %r, %r\n", REG_ARG(left_reg, left_size), REG_ARG(right_reg, right_size));
         break;
 
@@ -139,37 +154,37 @@ static void gen_node_binary_op(struct gen_state *state, struct bcc_ast_entry *en
     case BCC_AST_BINARY_OP_GREATER_THAN:
         gen_out(state, "    cmp %r, %r\n", REG_ARG(right_reg, right_size), REG_ARG(left_reg, left_size));
         gen_out(state, "    setg %%al\n");
-        gen_conv_op(state, 'a', 1, right_size);
+        gen_conv_op(state, 'a', 1, right_size, 1);
         break;
 
     case BCC_AST_BINARY_OP_LESS_THAN:
         gen_out(state, "    cmp %r, %r\n", REG_ARG(right_reg, right_size), REG_ARG(left_reg, left_size));
         gen_out(state, "    setl %%al\n");
-        gen_conv_op(state, 'a', 1, right_size);
+        gen_conv_op(state, 'a', 1, right_size, 1);
         break;
 
     case BCC_AST_BINARY_OP_GREATER_THAN_EQUAL:
         gen_out(state, "    cmp %r, %r\n", REG_ARG(right_reg, right_size), REG_ARG(left_reg, left_size));
         gen_out(state, "    setge %%al\n");
-        gen_conv_op(state, 'a', 1, right_size);
+        gen_conv_op(state, 'a', 1, right_size ,1);
         break;
 
     case BCC_AST_BINARY_OP_LESS_THAN_EQUAL:
         gen_out(state, "    cmp %r, %r\n", REG_ARG(right_reg, right_size), REG_ARG(left_reg, left_size));
         gen_out(state, "    setle %%al\n");
-        gen_conv_op(state, 'a', 1, right_size);
+        gen_conv_op(state, 'a', 1, right_size, 1);
         break;
 
     case BCC_AST_BINARY_OP_DOUBLEEQUAL:
         gen_out(state, "    cmp %r, %r\n", REG_ARG(right_reg, right_size), REG_ARG(left_reg, left_size));
         gen_out(state, "    sete %%al\n");
-        gen_conv_op(state, 'a', 1, right_size);
+        gen_conv_op(state, 'a', 1, right_size, 1);
         break;
 
     case BCC_AST_BINARY_OP_NOT_EQUAL:
         gen_out(state, "    cmp %r, %r\n", REG_ARG(right_reg, right_size), REG_ARG(left_reg, left_size));
         gen_out(state, "    setne %%al\n");
-        gen_conv_op(state, 'a', 1, right_size);
+        gen_conv_op(state, 'a', 1, right_size, 1);
         break;
 
     case BCC_AST_BINARY_OP_BITWISE_AND:
@@ -277,11 +292,11 @@ static void gen_node_unary_op(struct gen_state *state, struct bcc_ast_entry *ent
         break;
 
     case BCC_AST_UNARY_OP_ADDRESS_OF:
-        switch (uop->expr->type) {
+        switch (uop->lvalue->type) {
         case BCC_AST_NODE_VAR: {
-            struct bae_var *store = container_of(uop->expr, struct bae_var, ent);
+            struct bae_var *store = container_of(uop->lvalue, struct bae_var, ent);
             struct bcc_ast_variable *var = store->var;
-            gen_out(state, "    lea -%d(%%esp), %r\n", var->loffset, REG_ARG('a', var->type->size));
+            gen_out(state, "    lea -%d(%%ebp), %r\n", var->loffset, REG_ARG('a', var->type->size));
             break;
         }
 
@@ -413,7 +428,7 @@ static void gen_node_cast(struct gen_state *state, struct bcc_ast_entry *ent)
         size_t size_from = from->size;
         size_t size_to = to->size;
 
-        gen_conv_op(state, 'a', size_from, size_to);
+        gen_conv_op(state, 'a', size_from, size_to, to->is_unsigned);
     }
 }
 

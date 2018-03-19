@@ -2,6 +2,7 @@
 #define INCLUDE_AST_TYPE_H
 
 #include <stdbool.h>
+#include "bits.h"
 
 enum bcc_ast_primitive_type {
     BCC_AST_PRIM_VOID,
@@ -18,6 +19,11 @@ enum bcc_ast_type_node {
     BCC_AST_TYPE_MAX
 };
 
+/* Flags */
+enum bcc_ast_type_qualifier {
+    BCC_AST_TYPE_QUALIFIER_CONST,
+};
+
 /*
  * Represents type information.
  *
@@ -30,6 +36,10 @@ struct bcc_ast_type {
     enum bcc_ast_primitive_type prim;
 
     size_t size;
+
+    flags_t qualifier_flags;
+
+    unsigned int is_unsigned :1;
 
     struct bcc_ast_type *inner;
 };
@@ -84,6 +94,16 @@ static inline bool bcc_ast_type_is_primitive(struct bcc_ast_type *type)
 static inline bool bcc_ast_type_is_pointer(struct bcc_ast_type *type)
 {
     return type->node_type == BCC_AST_TYPE_POINTER;
+}
+
+static inline bool bcc_ast_type_is_const(struct bcc_ast_type *type)
+{
+    return flag_test(&type->qualifier_flags, BCC_AST_TYPE_QUALIFIER_CONST);
+}
+
+static inline bool bcc_ast_type_is_unsigned(struct bcc_ast_type *type)
+{
+    return type->is_unsigned;
 }
 
 struct bcc_ast_type *bcc_ast_type_integer_promotion(struct bcc_ast_type *first, struct bcc_ast_type *second);

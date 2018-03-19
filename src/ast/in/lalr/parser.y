@@ -4,6 +4,7 @@
 #include <string.h>
 #include "container_of.h"
 #include "list.h"
+#include "bits.h"
 
 #include "lexer.h"
 #include "parser.h"
@@ -35,8 +36,47 @@ static inline void temp_list_init(struct temp_list *t)
 static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right);
 static struct bcc_ast_entry *create_assignment(struct bcc_parser_state *, struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op);
 
+enum bcc_ast_type_specifier {
+    BCC_AST_TYPE_SPECIFIER_INT,
+    BCC_AST_TYPE_SPECIFIER_LONG,
+    BCC_AST_TYPE_SPECIFIER_UNSIGNED,
+    BCC_AST_TYPE_SPECIFIER_SIGNED,
+    BCC_AST_TYPE_SPECIFIER_SHORT,
+    BCC_AST_TYPE_SPECIFIER_CHAR,
+    BCC_AST_TYPE_SPECIFIER_VOID,
+};
+
+static bool specifier_is_invalid(flags_t specifiers, int new_specifier);
+static void specifier_add_to_type(struct bcc_ast_type *type, int specifier);
+
+static inline enum bcc_ast_primitive_type specifier_to_prim(enum bcc_ast_type_specifier spec)
+{
+    switch (spec) {
+    case BCC_AST_TYPE_SPECIFIER_INT:
+        return BCC_AST_PRIM_INT;
+
+    case BCC_AST_TYPE_SPECIFIER_CHAR:
+        return BCC_AST_PRIM_CHAR;
+
+    case BCC_AST_TYPE_SPECIFIER_SHORT:
+        return BCC_AST_PRIM_SHORT;
+
+    case BCC_AST_TYPE_SPECIFIER_LONG:
+        return BCC_AST_PRIM_LONG;
+
+    case BCC_AST_TYPE_SPECIFIER_VOID:
+        return BCC_AST_PRIM_VOID;
+
+    default:
+        return BCC_AST_PRIM_MAX;
+    }
+}
+
 #define ASSIGNMENT(lval, rval, loc, bin_op) \
     ({ \
+        if (bcc_ast_type_is_const((lval)->node_type)) \
+            ABORT_WITH_ERROR(&(loc), "lvalue is const"); \
+            \
         struct bcc_ast_entry *assignment = create_assignment(state, (lval), (rval), (bin_op)); \
         if (!assignment) { \
             char *str1, *str2; \
@@ -122,6 +162,11 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
         struct bcc_ast_type *type;
         char *ident;
     } declarator;
+
+    struct {
+        struct bcc_ast_type *type;
+        flags_t specifier_flags;
+    } type_base;
 }
 
 %define api.pure full
@@ -155,17 +200,18 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 %token TOK_WHILE
 %token TOK_ELLIPSIS
 
-%token TOK_ASSIGN_PLUS "+="
-%token TOK_ASSIGN_MINUS "-="
-%token TOK_ASSIGN_MULT "*="
-%token TOK_ASSIGN_DIV "/="
-%token TOK_ASSIGN_MOD "%="
+%token TOK_ASSIGN_PLUS       "+="
+%token TOK_ASSIGN_MINUS      "-="
+%token TOK_ASSIGN_MULT       "*="
+%token TOK_ASSIGN_DIV        "/="
+%token TOK_ASSIGN_MOD        "%="
 %token TOK_ASSIGN_SHIFTRIGHT ">>="
-%token TOK_ASSIGN_SHIFTLEFT "<<="
-%token TOK_ASSIGN_AND "&="
-%token TOK_ASSIGN_OR  "|="
-%token TOK_ASSIGN_XOR "^="
+%token TOK_ASSIGN_SHIFTLEFT  "<<="
+%token TOK_ASSIGN_AND        "&="
+%token TOK_ASSIGN_OR         "|="
+%token TOK_ASSIGN_XOR        "^="
 
+%token TOK_CONST TOK_UNSIGNED TOK_SIGNED
 %token TOK_INT TOK_CHAR TOK_LONG TOK_SHORT TOK_VOID
 
 %token TOK_IF TOK_ELSE
@@ -181,7 +227,11 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 %type <temp_list> function_arg_list_or_empty
 %type <str> string
 
-%type <type> type_specifier type_direct_abstract_declaractor type_abstract_declarator
+%type <ival> type_specifier type_qualifier
+
+%type <type_base> type_base_with_spec
+
+%type <type> type_base type_direct_abstract_declaractor type_abstract_declarator
 %type <type> type_pointer
 %type <type> type_name
 %type <declarator> type_direct_declarator type_declarator type_name_optional_ident
@@ -214,15 +264,61 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 
 /* Type parsing */
 type_specifier
-    : TOK_INT   { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_INT; }
-    | TOK_LONG  { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_LONG; }
-    | TOK_SHORT { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_SHORT; }
-    | TOK_CHAR  { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_CHAR; }
-    | TOK_VOID  { $$ = bcc_ast_type_primitives + BCC_AST_PRIM_VOID; }
+    : TOK_INT      { $$ = BCC_AST_TYPE_SPECIFIER_INT; }
+    | TOK_LONG     { $$ = BCC_AST_TYPE_SPECIFIER_LONG; }
+    | TOK_SHORT    { $$ = BCC_AST_TYPE_SPECIFIER_SHORT; }
+    | TOK_CHAR     { $$ = BCC_AST_TYPE_SPECIFIER_CHAR; }
+    | TOK_VOID     { $$ = BCC_AST_TYPE_SPECIFIER_VOID; }
+    | TOK_UNSIGNED { $$ = BCC_AST_TYPE_SPECIFIER_UNSIGNED; }
+    | TOK_SIGNED   { $$ = BCC_AST_TYPE_SPECIFIER_SIGNED; }
+
+type_qualifier
+    : TOK_CONST { $$ = BCC_AST_TYPE_QUALIFIER_CONST; }
+
+type_base_with_spec
+    : type_specifier {
+        $$.type = create_bcc_ast_type_prim(ast, BCC_AST_PRIM_MAX);
+        $$.specifier_flags = F($1);
+        specifier_add_to_type($$.type, $1);
+    }
+    | type_qualifier {
+        struct bcc_ast_type *type = create_bcc_ast_type_prim(ast, BCC_AST_PRIM_MAX);
+        flag_set(&type->qualifier_flags, $1);
+        $$.type = type;
+        $$.specifier_flags = 0;
+    }
+    | type_base_with_spec type_specifier {
+        if (flag_test(&$1.specifier_flags, $2))
+            ABORT_WITH_ERROR(&@2, "Duplicate specifier");
+
+        if (specifier_is_invalid($1.specifier_flags, $2))
+            ABORT_WITH_ERROR(&@2, "Invalid specifier");
+
+        flag_set(&$1.specifier_flags, $2);
+        specifier_add_to_type($1.type, $2);
+        $$ = $1;
+    }
+    | type_base_with_spec type_qualifier {
+        if (flag_test(&$1.type->qualifier_flags, $2))
+            ABORT_WITH_ERROR(&@2, "Duplicate qualifier");
+
+        flag_set(&$1.type->qualifier_flags, $2);
+        $$ = $1;
+    }
+
+type_base
+    : type_base_with_spec { $$ = $1.type; }
 
 type_pointer
     : '*' {
         $$ = create_bcc_ast_type_pointer(ast, NULL);
+    }
+    | type_pointer type_qualifier {
+        if (flag_test(&$1->qualifier_flags, $2))
+            ABORT_WITH_ERROR(&@2, "Duplicate qualifier");
+
+        flag_set(&$1->qualifier_flags, $2);
+        $$ = $1;
     }
     | type_pointer '*' {
         $$ = create_bcc_ast_type_pointer(ast, $1);
@@ -272,7 +368,7 @@ type_declarator
 
 /*
 type_declaration
-    : type_specifier type_declarator {
+    : type_base type_declarator {
         struct bcc_ast_type *type = $2.type;
         for (; type->inner; type = type->inner)
             ;
@@ -283,10 +379,10 @@ type_declaration
     */
 
 type_name
-    : type_specifier  {
+    : type_base {
         $$ = $1;
     }
-    | type_specifier type_abstract_declarator {
+    | type_base type_abstract_declarator {
         struct bcc_ast_type *type = $2;
         for (; type->inner; type = type->inner)
             ;
@@ -297,7 +393,7 @@ type_name
 
 type_name_optional_ident
     : type_name { $$.ident = NULL; $$.type = $1; }
-    | type_specifier type_declarator {
+    | type_base type_declarator {
         struct bcc_ast_type *type = $2.type;
 
         if ($2.type) {
@@ -389,7 +485,20 @@ unary_postfix_expression
         op->ent.node_type = $1->node_type;
         $$ = &op->ent;
     }
-    | TOK_IDENT '(' function_arg_list_or_empty ')' %prec "function-call" {
+    | unary_postfix_expression '[' expression ']' {
+        if (!bcc_ast_type_is_pointer($1->node_type))
+            ABORT_WITH_ERROR(&@1, "Invalid Unary");
+
+        struct bcc_ast_entry *bin_op = create_bin_from_components(BCC_AST_BINARY_OP_PLUS, $1, $3);
+        if (!bin_op)
+            ABORT_WITH_ERROR(&@3, "Invalid index");
+
+        struct bae_unary_op *uop = create_bae_unary_op(BCC_AST_UNARY_OP_DEREF);
+        uop->expr = bin_op;
+        uop->ent.node_type = bin_op->node_type->inner;
+        $$ = &uop->ent;
+    }
+    | TOK_IDENT '(' function_arg_list_or_empty ')' {
         struct bae_func_call *call = create_bae_func_call();
         call->func = bcc_ast_find_function(ast, $1);
         call->ent.node_type = call->func->ret_type;
@@ -615,7 +724,7 @@ declaration_list
     | declaration_list ',' declaration_optional_assignment
 
 declaration
-    : type_specifier {
+    : type_base {
         state->declaration_type = $1;
         } declaration_list ';'
 
@@ -699,7 +808,7 @@ parameter_list_or_empty
     | parameter_list_optional_ellipsis
 
 function_declaration
-    : type_specifier TOK_IDENT '(' parameter_list_or_empty ')' {
+    : type_base TOK_IDENT '(' parameter_list_or_empty ')' {
         struct bae_function *func = create_bae_function($2);
         func->ret_type = $1;
         func->has_ellipsis = $4;
@@ -740,6 +849,88 @@ basic_cc_file
     }
 
 %%
+
+static bool specifier_is_invalid(flags_t specifiers, int new_specifier)
+{
+    flags_t flags;
+
+    if (flag_test(&specifiers, new_specifier))
+        return true;
+
+    switch (new_specifier) {
+    case BCC_AST_TYPE_SPECIFIER_CHAR:
+        flags = F(BCC_AST_TYPE_SPECIFIER_SIGNED) | F(BCC_AST_TYPE_SPECIFIER_UNSIGNED);
+        return (specifiers & ~flags) != 0;
+
+    case BCC_AST_TYPE_SPECIFIER_VOID:
+        return specifiers != 0;
+
+    case BCC_AST_TYPE_SPECIFIER_SHORT:
+        flags = F(BCC_AST_TYPE_SPECIFIER_INT) | F(BCC_AST_TYPE_SPECIFIER_SIGNED) | F(BCC_AST_TYPE_SPECIFIER_UNSIGNED);
+        return (specifiers & ~flags) != 0;
+
+    case BCC_AST_TYPE_SPECIFIER_LONG:
+        flags = F(BCC_AST_TYPE_SPECIFIER_INT) | F(BCC_AST_TYPE_SPECIFIER_SIGNED) | F(BCC_AST_TYPE_SPECIFIER_UNSIGNED);
+        return (specifiers & ~flags) != 0;
+
+    case BCC_AST_TYPE_SPECIFIER_INT:
+        flags = F(BCC_AST_TYPE_SPECIFIER_SIGNED) | F(BCC_AST_TYPE_SPECIFIER_UNSIGNED) | F(BCC_AST_TYPE_SPECIFIER_LONG) | F(BCC_AST_TYPE_SPECIFIER_SHORT);
+        return (specifiers & ~flags) != 0;
+
+    case BCC_AST_TYPE_SPECIFIER_SIGNED:
+    case BCC_AST_TYPE_SPECIFIER_UNSIGNED:
+        flags = F(BCC_AST_TYPE_SPECIFIER_SIGNED) | F(BCC_AST_TYPE_SPECIFIER_UNSIGNED);
+        return (specifiers & flags) != 0;
+    }
+
+    return false;
+}
+
+static void specifier_add_to_type(struct bcc_ast_type *type, int specifier)
+{
+    switch (specifier) {
+    case BCC_AST_TYPE_SPECIFIER_VOID:
+        type->prim = BCC_AST_PRIM_VOID;
+        break;
+
+    case BCC_AST_TYPE_SPECIFIER_INT:
+        if (type->prim == BCC_AST_PRIM_MAX) {
+            type->size = bcc_ast_type_primitives[BCC_AST_PRIM_INT].size;
+            type->prim = BCC_AST_PRIM_INT;
+        }
+        break;
+
+    case BCC_AST_TYPE_SPECIFIER_LONG:
+        type->size = bcc_ast_type_primitives[BCC_AST_PRIM_LONG].size;
+        type->prim = BCC_AST_PRIM_LONG;
+        break;
+
+    case BCC_AST_TYPE_SPECIFIER_SHORT:
+        type->size = bcc_ast_type_primitives[BCC_AST_PRIM_SHORT].size;
+        type->prim = BCC_AST_PRIM_SHORT;
+        break;
+
+    case BCC_AST_TYPE_SPECIFIER_CHAR:
+        type->size = bcc_ast_type_primitives[BCC_AST_PRIM_CHAR].size;
+        type->prim = BCC_AST_PRIM_CHAR;
+        break;
+
+    case BCC_AST_TYPE_SPECIFIER_UNSIGNED:
+        type->is_unsigned = 1;
+        if (type->prim == BCC_AST_PRIM_MAX) {
+            type->size = bcc_ast_type_primitives[BCC_AST_PRIM_INT].size;
+            type->prim = BCC_AST_PRIM_INT;
+        }
+        break;
+
+    case BCC_AST_TYPE_SPECIFIER_SIGNED:
+        if (type->prim == BCC_AST_PRIM_MAX) {
+            type->size = bcc_ast_type_primitives[BCC_AST_PRIM_INT].size;
+            type->prim = BCC_AST_PRIM_INT;
+        }
+        break;
+    }
+}
 
 static struct bcc_ast_entry *create_bin_ptr_op(enum bcc_ast_binary_op op, struct bcc_ast_entry *ptr, struct bcc_ast_entry *val, int ptr_is_first)
 {

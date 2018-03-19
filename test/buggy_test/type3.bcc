@@ -1,0 +1,6 @@
+
+int main()
+{
+    const void int i = 0;
+}
+

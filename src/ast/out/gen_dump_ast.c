@@ -97,6 +97,9 @@ static void print_node_function(struct print_state *state, struct bcc_ast_entry 
             print_state_out(state, "VAR: \"%s\"\n", var->name);
         else
             print_state_out(state, "VAR: Temporary\n");
+
+        print_state_out(state, "TYPE:\n");
+        bcc_ast_type_print(state, var->type);
     }
 
     if (func->block)
@@ -237,11 +240,14 @@ static const char *type_name_table[] = {
 static void print_type_prim(struct print_state *state, struct bcc_ast_type *type)
 {
     print_state_out(state, "TYPE: %s\n", type_name_table[type->prim]);
+    if (type->is_unsigned)
+        print_state_out(state, "TYPE: unsigned\n");
 }
 
 static void print_type_pointer(struct print_state *state, struct bcc_ast_type *type)
 {
-    print_state_out(state, "TYPE: pointer:\n");
+    print_state_out(state, "TYPE: pointer:%s\n",
+            bit_test(&type->qualifier_flags, BCC_AST_TYPE_QUALIFIER_CONST) ? " const" : "");
     bcc_ast_type_print(state, type->inner);
 }
 

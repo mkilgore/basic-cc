@@ -1,0 +1,9 @@
+
+int main()
+{
+    const char *str = "this is a test";
+
+    *str = '\0';
+
+    return 0;
+}

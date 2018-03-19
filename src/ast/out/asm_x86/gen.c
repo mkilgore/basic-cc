@@ -63,6 +63,11 @@ const char *gen_output_handle_escape(struct gen_state *state, const char *str, v
         fprintf(state->out, "%d", s);
         break;
 
+    case 'c':
+        r = va_arg(*lst, int);
+        fputc(r, state->out);
+        break;
+
     case 's':
         arg_str = va_arg(*lst, const char *);
         fprintf(state->out, "%s", arg_str);
@@ -99,7 +104,7 @@ void gen_out(struct gen_state *state, const char *str, ...)
     va_end(lst);
 }
 
-void gen_conv_op(struct gen_state *state, char r, int size_from, int size_to)
+void gen_conv_op(struct gen_state *state, char r, int size_from, int size_to, int is_unsigned)
 {
     switch (size_from) {
     case 1:
@@ -108,11 +113,11 @@ void gen_conv_op(struct gen_state *state, char r, int size_from, int size_to)
             break;
 
         case 2:
-            gen_out(state, "    movsbw %r, %r\n", REG_ARG(r, 1), REG_ARG(r, 2));
+            gen_out(state, "    mov%cbw %r, %r\n", (is_unsigned)? 'z': 's', REG_ARG(r, 1), REG_ARG(r, 2));
             break;
 
         case 4:
-            gen_out(state, "    movsbl %r, %r\n", REG_ARG(r, 1), REG_ARG(r, 4));
+            gen_out(state, "    mov%cbl %r, %r\n", (is_unsigned)? 'z': 's', REG_ARG(r, 1), REG_ARG(r, 4));
             break;
         }
         break;

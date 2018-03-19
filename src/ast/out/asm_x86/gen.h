@@ -13,7 +13,7 @@ struct gen_state {
 
 void get_reg(char r, int size, char *id);
 const char *gen_output_handle_escape(struct gen_state *state, const char *str, va_list *lst);
-void gen_conv_op(struct gen_state *state, char r, int size_from, int size_to);
+void gen_conv_op(struct gen_state *state, char r, int size_from, int size_to, int is_unsigned);
 
 void gen_out(struct gen_state *state, const char *str, ...);
 

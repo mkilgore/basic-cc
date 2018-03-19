@@ -1,0 +1,9 @@
+
+int main()
+{
+    unsigned int i = 0XFFFFFFFF;
+    unsigned int j = 0xffffffff;
+    unsigned int k = 2000;
+
+    return 0;
+}

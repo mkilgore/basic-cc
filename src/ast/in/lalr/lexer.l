@@ -39,6 +39,9 @@ static void state_append_str(struct bcc_parser_state *state, char ch);
 "else" { return TOK_ELSE; }
 "return" { return TOK_RETURN; }
 "while" { return TOK_WHILE; }
+"const" { return TOK_CONST; }
+"unsigned" { return TOK_UNSIGNED; }
+"signed" { return TOK_SIGNED; }
 
 "int" { return TOK_INT; }
 "long" { return TOK_LONG;}
@@ -93,6 +96,8 @@ static void state_append_str(struct bcc_parser_state *state, char ch);
 ")" { return ')'; }
 "{" { return '{'; }
 "}" { return '}'; }
+"[" { return '['; }
+"]" { return ']'; }
 ";" { return ';'; }
 "," { return ','; }
 
