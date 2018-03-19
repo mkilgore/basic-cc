@@ -14,8 +14,6 @@
 #include "ast/nodes/function.h"
 #include "ast/nodes/block.h"
 #include "ast/nodes/return.h"
-#include "ast/nodes/var_load.h"
-#include "ast/nodes/var_store.h"
 #include "ast/nodes/assign.h"
 #include "ast/nodes/func_call.h"
 #include "ast/nodes/while.h"

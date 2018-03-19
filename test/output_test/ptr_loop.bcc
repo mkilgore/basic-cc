@@ -1,0 +1,14 @@
+
+int printf(char *, ...);
+
+int main()
+{
+    char *str = "TEST 12345";
+
+    while (*str) {
+        printf("%s", str);
+        str++;
+    }
+
+    return 0;
+}

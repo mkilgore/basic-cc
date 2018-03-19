@@ -21,18 +21,6 @@ static void print_node_literal_string(struct bcc_ast_entry *ent, FILE *out)
     free(esc);
 }
 
-static void print_node_var_load(struct bcc_ast_entry *ent, FILE *out)
-{
-    struct bae_var_load *var = container_of(ent, struct bae_var_load, ent);
-    fprintf(out, "%s", var->var->name);
-}
-
-static void print_node_var_store(struct bcc_ast_entry *ent, FILE *out)
-{
-    struct bae_var_store *var = container_of(ent, struct bae_var_store, ent);
-    fprintf(out, "%s", var->var->name);
-}
-
 static void print_node_binary_op(struct bcc_ast_entry *ent, FILE *out)
 {
     struct bae_binary_op *bin_op = container_of(ent, struct bae_binary_op, ent);
@@ -147,8 +135,6 @@ static void print_node_cast(struct bcc_ast_entry *ent, FILE *out)
 static void (*print_node_table[BCC_AST_NODE_MAX])(struct bcc_ast_entry *, FILE *) = {
     [BCC_AST_NODE_LITERAL_NUMBER] = print_node_literal_number,
     [BCC_AST_NODE_LITERAL_STRING] = print_node_literal_string,
-    [BCC_AST_NODE_VAR_LOAD] = print_node_var_load,
-    [BCC_AST_NODE_VAR_STORE] = print_node_var_store,
     [BCC_AST_NODE_BINARY_OP] = print_node_binary_op,
     [BCC_AST_NODE_EXPRESSION_STMT] = print_node_expression_stmt,
     [BCC_AST_NODE_IF] = print_node_if,

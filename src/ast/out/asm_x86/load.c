@@ -19,18 +19,6 @@ static void gen_node_literal_string(struct gen_state *state, struct bcc_ast_entr
     gen_out(state, "    mov $.LS%d, %r\n", lit_str->string_id, REG_ARG('a', 4));
 }
 
-static void gen_node_var_load(struct gen_state *state, struct bcc_ast_entry *ent)
-{
-    struct bae_var_load *load = container_of(ent, struct bae_var_load, ent);
-    gen_out(state, "    mov -%d(%%ebp), %r\n", load->var->loffset, REG_ARG('a', load->var->type->size));
-}
-
-static void gen_node_var_store(struct gen_state *state, struct bcc_ast_entry *ent)
-{
-    struct bae_var_store *store = container_of(ent, struct bae_var_store, ent);
-    gen_out(state, "    mov %r, -%d(%%ebp)\n", REG_ARG('a', store->var->type->size), store->var->loffset);
-}
-
 static void gen_node_logical_op(struct gen_state *state, struct bae_binary_op *op)
 {
     int label = state->next_label++;
@@ -402,7 +390,7 @@ static void gen_node_while(struct gen_state *state, struct bcc_ast_entry *ent)
     gen_out(state, ".L_WHILE_CONDITION%d:\n", label);
 
     gen_bcc_ast_entry(state, w->condition);
-    gen_out(state, "    cmpl $0, %%eax\n");
+    gen_out(state, "    cmp $0, %r\n", REG_ARG('a', bae_size(w->condition)));
     gen_out(state, "    je .L_WHILE_END%d\n", label);
 
     gen_bcc_ast_entry(state, w->block);
@@ -438,8 +426,6 @@ static void gen_node_var(struct gen_state *state, struct bcc_ast_entry *ent)
 static void (*gen_entry_table[BCC_AST_NODE_MAX]) (struct gen_state *state, struct bcc_ast_entry *ent) = {
     [BCC_AST_NODE_LITERAL_NUMBER] = gen_node_literal_number,
     [BCC_AST_NODE_LITERAL_STRING] = gen_node_literal_string,
-    [BCC_AST_NODE_VAR_LOAD] = gen_node_var_load,
-    [BCC_AST_NODE_VAR_STORE] = gen_node_var_store,
     [BCC_AST_NODE_BINARY_OP] = gen_node_binary_op,
     [BCC_AST_NODE_UNARY_OP] = gen_node_unary_op,
     [BCC_AST_NODE_EXPRESSION_STMT] = gen_node_expression_stmt,
