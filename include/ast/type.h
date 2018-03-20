@@ -40,6 +40,7 @@ struct bcc_ast_type {
     flags_t qualifier_flags;
 
     unsigned int is_unsigned :1;
+    unsigned int is_zero :1;
 
     struct bcc_ast_type *inner;
 };
@@ -78,7 +79,9 @@ static inline struct bcc_ast_type *create_bcc_ast_type_pointer(struct bcc_ast *a
 
 extern struct bcc_ast_type bcc_ast_type_primitives[BCC_AST_PRIM_MAX];
 extern struct bcc_ast_type bcc_ast_type_char_ptr;
+extern struct bcc_ast_type bcc_ast_type_int_zero;
 
+bool bcc_ast_type_lvalue_identical_to_rvalue(struct bcc_ast_type *lvalue, struct bcc_ast_type *rvalue);
 bool bcc_ast_type_are_identical(struct bcc_ast_type *first, struct bcc_ast_type *second);
 int bcc_ast_type_are_compatible(struct bcc_ast_type *first, struct bcc_ast_type *second);
 char *bcc_ast_type_get_name(struct bcc_ast_type *type);

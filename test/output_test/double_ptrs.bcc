@@ -1,0 +1,22 @@
+
+int printf(const char *, ...);
+
+int main2(int ******ptr)
+{
+    return printf("%d", ******ptr);
+}
+
+int main()
+{
+    int i = 20;
+    int *ptr1 = &i;
+    int **ptr2 = &ptr1;
+    int ***ptr3 = &ptr2;
+    int ****ptr4 = &ptr3;
+    int *****ptr5 = &ptr4;
+    int ******ptr6 = &ptr5;
+
+    main2(ptr6);
+
+    return 0;
+}

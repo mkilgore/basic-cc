@@ -152,10 +152,17 @@ static void gen_bcc_ast_function(struct gen_state *state, struct bae_function *f
 
         list_foreach_entry_reverse(&func->local_variable_list, var, func_entry) {
             local_var_count++;
-            var->loffset = local_var_count * 4;
+            var->loffset = -local_var_count * 4;
         }
 
         gen_out(state, "    subl $%d, %%esp\n", local_var_count * 4);
+
+        /* The parameters are passed above the return address */
+        local_var_count = 1;
+        list_foreach_entry(&func->param_list, var, block_entry) {
+            local_var_count++;
+            var->loffset = local_var_count * 4;
+        }
 
         gen_bcc_ast_entry(state, func->block);
     } else {

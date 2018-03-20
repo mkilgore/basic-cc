@@ -9,7 +9,7 @@
 static void store_node_var(struct gen_state *state, struct bcc_ast_entry *ent)
 {
     struct bae_var *store = container_of(ent, struct bae_var, ent);
-    gen_out(state, "    mov %r, -%d(%%ebp)\n", REG_ARG('a', store->var->type->size), store->var->loffset);
+    gen_out(state, "    mov %r, %d(%%ebp)\n", REG_ARG('a', store->var->type->size), store->var->loffset);
 }
 
 static void store_node_unary_op(struct gen_state *state, struct bcc_ast_entry *ent)

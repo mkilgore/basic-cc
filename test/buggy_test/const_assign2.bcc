@@ -1,0 +1,11 @@
+
+int main()
+{
+    char *ptr = "TEST";
+    const char **cptr;
+
+    cptr = &ptr;
+
+    return 0;
+}
+

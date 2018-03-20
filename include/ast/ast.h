@@ -101,7 +101,7 @@ struct bcc_ast_variable;
 
 void bcc_ast_out(struct bcc_ast *ast, FILE *out, enum bcc_ast_out_format);
 int bcc_ast_parse(struct bcc_ast *ast, FILE *in);
-struct bcc_ast_variable *bcc_ast_find_variable(struct bcc_ast *ast, struct bae_block *scope, const char *name);
+struct bcc_ast_variable *bcc_ast_find_variable(struct bcc_ast *ast, struct bae_function *func, struct bae_block *scope, const char *name);
 struct bae_function *bcc_ast_find_function(struct bcc_ast *ast, const char *name);
 void bcc_ast_add_function(struct bcc_ast *ast, struct bae_function *func);
 void bcc_ast_add_literal_string(struct bcc_ast *ast, struct bae_literal_string *lit_str);

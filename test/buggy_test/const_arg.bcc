@@ -1,0 +1,12 @@
+
+int main2(char *s)
+{
+    return 0;
+}
+
+int main()
+{
+    const char *str = "TEST";
+
+    return main2(str);
+}

@@ -21,6 +21,13 @@ struct bcc_ast_type bcc_ast_type_primitives[BCC_AST_PRIM_MAX] = {
     DEF_PRIM(BCC_AST_PRIM_VOID, 0),
 };
 
+struct bcc_ast_type bcc_ast_type_int_zero = {
+    .node_type = BCC_AST_TYPE_PRIM,
+    .prim = BCC_AST_PRIM_INT,
+    .size = 4,
+    .is_zero = 1,
+};
+
 struct bcc_ast_type bcc_ast_type_char_ptr = {
     .node_type = BCC_AST_TYPE_POINTER,
     .size = BCC_AST_TYPE_POINTER_SIZE,
@@ -34,15 +41,76 @@ struct bcc_ast_type *create_bcc_ast_type(struct bcc_ast *ast)
     return type;
 }
 
+/* Compares two types and decies if the rvalue can be assigned to the lvalue without casting */
+bool bcc_ast_type_lvalue_identical_to_rvalue(struct bcc_ast_type *lvalue, struct bcc_ast_type *rvalue)
+{
+    int count = 0;
+
+    for (; lvalue && rvalue; lvalue = lvalue->inner, rvalue = rvalue->inner, count++) {
+        if (lvalue->node_type != rvalue->node_type)
+            return false;
+
+        /* 
+         * Const gets interesting. 'top-level' const can be ignored (assignments are copies, so it doesn't matter if the rvalue is const)
+         * Also, 'second-level' const can be ignored if the 'const' is on the lvalue. IE:
+         *
+         *     const char *s = (char *)l
+         *
+         * Const past the second level cannot be dropped however, so this is never legal:
+         *
+         *     const char **s = (char **)l
+         */
+
+        if (count >= 2) {
+            if (lvalue->qualifier_flags != rvalue->qualifier_flags)
+                return false;
+        } else if (count == 0) {
+            /* First level - ignore const completely */
+            flags_t lvalue_flags = lvalue->qualifier_flags & ~F(BCC_AST_TYPE_QUALIFIER_CONST);
+            flags_t rvalue_flags = rvalue->qualifier_flags & ~F(BCC_AST_TYPE_QUALIFIER_CONST);
+            if (lvalue_flags != rvalue_flags)
+                return false;
+        } else {
+            /* Second level - ignore const only if lvalue is const */
+            if (flag_test(&lvalue->qualifier_flags, BCC_AST_TYPE_QUALIFIER_CONST)) {
+                flags_t lvalue_flags = lvalue->qualifier_flags & ~F(BCC_AST_TYPE_QUALIFIER_CONST);
+                flags_t rvalue_flags = rvalue->qualifier_flags & ~F(BCC_AST_TYPE_QUALIFIER_CONST);
+                if (lvalue_flags != rvalue_flags)
+                    return false;
+            } else {
+                if (lvalue->qualifier_flags != rvalue->qualifier_flags)
+                    return false;
+            }
+        }
+
+        if (lvalue->node_type == BCC_AST_TYPE_PRIM) {
+            if (lvalue->prim != rvalue->prim)
+                return false;
+
+            if (lvalue->is_unsigned != rvalue->is_unsigned)
+                return false;
+        }
+    }
+
+    if (lvalue || rvalue)
+        return false;
+
+    return true;
+}
+
 bool bcc_ast_type_are_identical(struct bcc_ast_type *first, struct bcc_ast_type *second)
 {
     for (; first && second; first = first->inner, second = second->inner) {
         if (first->node_type != second->node_type)
             return false;
 
-        if (first->node_type == BCC_AST_TYPE_PRIM)
+        if (first->node_type == BCC_AST_TYPE_PRIM) {
             if (first->prim != second->prim)
                 return false;
+
+            if (first->is_unsigned != second->is_unsigned)
+                return false;
+        }
     }
 
     if (first || second)
@@ -67,11 +135,16 @@ bool bcc_ast_type_is_void_pointer(struct bcc_ast_type *t)
 bool bcc_ast_type_implicit_cast_exists(struct bcc_ast_type *current, struct bcc_ast_type *target)
 {
     /* Pointers can be implicit cast to and from void * */
-    if (bcc_ast_type_is_void_pointer(current) && target->node_type == BCC_AST_TYPE_POINTER)
+    if (bcc_ast_type_is_void_pointer(current) && bcc_ast_type_is_pointer(target))
         return true;
 
-    if (bcc_ast_type_is_void_pointer(target) && current->node_type == BCC_AST_TYPE_POINTER)
+    if (bcc_ast_type_is_void_pointer(target) && bcc_ast_type_is_pointer(current))
         return true;
+
+    /* Zero is implicitly treated as the null pointer constant and can be assigned to any pointer */
+    if (bcc_ast_type_is_pointer(target))
+        if (bcc_ast_type_is_integer(current) && current->is_zero)
+            return true;
 
     /* Casts between integers are always valid */
     if (bcc_ast_type_is_integer(current) && bcc_ast_type_is_integer(target))

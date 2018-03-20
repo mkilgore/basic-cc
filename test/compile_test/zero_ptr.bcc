@@ -1,0 +1,14 @@
+
+int main2(const char *s)
+{
+    return 0;
+}
+
+int main()
+{
+    char *str = 0;
+
+    main2(0);
+
+    return 0;
+}

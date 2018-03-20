@@ -1,0 +1,21 @@
+
+int printf(const char *, ...);
+
+int main2(int arg1, char arg2, short arg3, int *ptr)
+{
+    printf("%d %d %d %d", arg1, arg2, arg3, *ptr);
+
+    return 0;
+}
+
+int main()
+{
+    int i = 200;
+
+    main2(10, 'a', 400, &i);
+
+    printf("%d %d %d", (char)'a', (short)200, 'b');
+
+    return 0;
+}
+

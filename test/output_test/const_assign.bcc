@@ -1,0 +1,13 @@
+
+int main()
+{
+    const int i = 20;
+    int k;
+    char *s = "TEST IS A TEST";
+    const char *str;
+
+    k = i;
+    str = s;
+
+    return 0;
+}

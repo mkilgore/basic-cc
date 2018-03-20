@@ -1,0 +1,9 @@
+
+int main2(int c) {
+
+}
+
+int main() {
+    return main2();
+}
+

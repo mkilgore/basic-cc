@@ -24,9 +24,8 @@ struct bcc_ast_variable {
     /* Used for temporary list in the parser */
     list_node_t temp_entry;
 
-    /* Note the offset is from the current stack frame
-     * Offset is always positive, even though stack grows downward */
-    uint32_t loffset;
+    /* Note the offset is from the current stack frame */
+    int32_t loffset;
 };
 
 #define BCC_AST_VARIABLE_INIT(e) \

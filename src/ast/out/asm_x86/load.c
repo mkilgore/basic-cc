@@ -296,7 +296,7 @@ static void gen_node_unary_op(struct gen_state *state, struct bcc_ast_entry *ent
         case BCC_AST_NODE_VAR: {
             struct bae_var *store = container_of(uop->lvalue, struct bae_var, ent);
             struct bcc_ast_variable *var = store->var;
-            gen_out(state, "    lea -%d(%%ebp), %r\n", var->loffset, REG_ARG('a', var->type->size));
+            gen_out(state, "    lea %d(%%ebp), %r\n", var->loffset, REG_ARG('a', var->type->size));
             break;
         }
 
@@ -435,7 +435,7 @@ static void gen_node_cast(struct gen_state *state, struct bcc_ast_entry *ent)
 static void gen_node_var(struct gen_state *state, struct bcc_ast_entry *ent)
 {
     struct bae_var *var = container_of(ent, struct bae_var, ent);
-    gen_out(state, "    mov -%d(%%ebp), %r\n", var->var->loffset, REG_ARG('a', var->var->type->size));
+    gen_out(state, "    mov %d(%%ebp), %r\n", var->var->loffset, REG_ARG('a', var->var->type->size));
 }
 
 static void (*gen_entry_table[BCC_AST_NODE_MAX]) (struct gen_state *state, struct bcc_ast_entry *ent) = {

@@ -275,6 +275,11 @@ type_specifier
 type_qualifier
     : TOK_CONST { $$ = BCC_AST_TYPE_QUALIFIER_CONST; }
 
+/* type specifier combined with a type qualifier
+ * The parsed specifier information is stored and passed separate, as well as applied to the struct bcc_ast_type object created.
+ *
+ * 'type_base' discards the extra specifier information after the type is fully parsed
+ */
 type_base_with_spec
     : type_specifier {
         $$.type = create_bcc_ast_type_prim(ast, BCC_AST_PRIM_MAX);
@@ -441,7 +446,7 @@ paren_expression
     : '(' expression ')' { $$ = $2; }
     | TOK_IDENT {
         struct bae_var *var = create_bae_var();
-        var->var = bcc_ast_find_variable(ast, state->current_scope, $1);
+        var->var = bcc_ast_find_variable(ast, state->current_func, state->current_scope, $1);
 
         if (!var->var)
             ABORT_WITH_ERROR(&@1, "Unknown variable name");
@@ -452,7 +457,7 @@ paren_expression
     }
     | TOK_NUMBER {
         struct bae_literal_number *lit_num = create_bae_literal_number($1);
-        lit_num->ent.node_type = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
+        lit_num->ent.node_type = &bcc_ast_type_int_zero;
         $$ = &lit_num->ent;
     }
     | string {
@@ -499,6 +504,66 @@ unary_postfix_expression
         $$ = &uop->ent;
     }
     | TOK_IDENT '(' function_arg_list_or_empty ')' {
+        struct bae_function *func = bcc_ast_find_function(ast, $1);
+        struct bcc_ast_variable *param;
+        struct bcc_ast_entry *arg;
+
+        if (!$3) {
+            if (!list_empty(&func->param_list))
+                ABORT_WITH_ERROR(&@3, "Not enough arguments supplied to function");
+        } else {
+            /*
+             * Type checking and casting for arguments
+             * This looks horrible, but we're really just looping through two lists at a time.
+             */
+            for (param = list_first_entry(&func->param_list, struct bcc_ast_variable, block_entry),
+                 arg   = list_first_entry(&$3->head, struct bcc_ast_entry, entry);
+                 !list_ptr_is_head(&func->param_list, &param->block_entry) && !list_ptr_is_head(&$3->head, &arg->entry);
+                 param = list_next_entry(param, block_entry),
+                 arg   = list_next_entry(arg, entry)) {
+
+                if (bcc_ast_type_lvalue_identical_to_rvalue(param->type, arg->node_type))
+                    continue;
+
+                if (bcc_ast_type_implicit_cast_exists(arg->node_type, param->type)) {
+                    struct bae_cast *cast = create_bae_cast();
+                    cast->expr = arg;
+                    cast->target = param->type;
+                    cast->ent.node_type = cast->target;
+
+                    list_replace(&cast->ent.entry, &arg->entry);
+
+                    arg = &cast->ent;
+                    continue;
+                }
+
+                ABORT_WITH_ERROR(&@3, "Argument with invalid type");
+            }
+
+            if (!list_ptr_is_head(&func->param_list, &param->block_entry))
+                ABORT_WITH_ERROR(&@3, "Not enough arguments supplied to function");
+
+            if (!list_ptr_is_head(&$3->head, &arg->entry) && !func->has_ellipsis)
+                ABORT_WITH_ERROR(&@3, "Too many arguments supplied to function");
+
+            for (;
+                !list_ptr_is_head(&$3->head, &arg->entry);
+                arg = list_next_entry(arg, entry)) {
+
+                if (bcc_ast_type_is_integer(arg->node_type)) {
+                    struct bae_cast *cast = create_bae_cast();
+                    cast->expr = arg;
+                    cast->target = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
+                    cast->ent.node_type = cast->target;
+
+                    list_replace(&cast->ent.entry, &arg->entry);
+
+                    arg = &cast->ent;
+                    continue;
+                }
+            }
+        }
+
         struct bae_func_call *call = create_bae_func_call();
         call->func = bcc_ast_find_function(ast, $1);
         call->ent.node_type = call->func->ret_type;
@@ -708,14 +773,19 @@ declaration_optional_assignment
         store->var = var;
         store->ent.node_type = var->type;
 
-        struct bae_assign *assign = create_bae_assign();
-        assign->lvalue = &store->ent;
-        assign->rvalue = $3;
-        assign->ent.node_type = store->ent.node_type;
+        /* We temporarally remove 'const' from the variable to allow for initializing a const variable */
+        bool const_is_set = flag_test(&var->type->qualifier_flags, BCC_AST_TYPE_QUALIFIER_CONST);
+        flag_clear(&var->type->qualifier_flags, BCC_AST_TYPE_QUALIFIER_CONST);
+
+        struct bcc_ast_entry *assign = create_assignment(state, &store->ent, $3, BCC_AST_BINARY_OP_MAX);
+        if (!assign)
+            ABORT_WITH_ERROR(&@2, "Assignment not valid");
+
+        if (const_is_set)
+            flag_set(&var->type->qualifier_flags, BCC_AST_TYPE_QUALIFIER_CONST);
 
         struct bae_expression_stmt *stmt = create_bae_expression_stmt();
-        stmt->expression = &assign->ent;
-
+        stmt->expression = assign;
         bae_block_add_entry(state->current_scope, &stmt->ent);
     }
 
@@ -1020,6 +1090,7 @@ static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op o
         size_t size_left = bae_size(left);
         size_t size_right = bae_size(right);
 
+        /* Also check and handle unsigned casting */
         if (size_left < size_right) {
             struct bae_cast *cast = create_bae_cast();
             cast->expr = left;
@@ -1102,7 +1173,7 @@ static struct bcc_ast_entry *create_assignment(struct bcc_parser_state *state, s
         */
     }
 
-    if (!bcc_ast_type_are_identical(lvalue->node_type, rvalue->node_type)) {
+    if (!bcc_ast_type_lvalue_identical_to_rvalue(lvalue->node_type, rvalue->node_type)) {
         if (!bcc_ast_type_implicit_cast_exists(rvalue->node_type, lvalue->node_type))
             return false;
 

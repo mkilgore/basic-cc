@@ -97,7 +97,7 @@ bool bcc_ast_entry_is_lvalue(struct bcc_ast_entry *ent)
     }
 }
 
-struct bcc_ast_variable *bcc_ast_find_variable(struct bcc_ast *ast, struct bae_block *scope, const char *name)
+struct bcc_ast_variable *bcc_ast_find_variable(struct bcc_ast *ast, struct bae_function *func, struct bae_block *scope, const char *name)
 {
     struct bcc_ast_variable *var;
     struct bae_block *current = scope;
@@ -106,6 +106,10 @@ struct bcc_ast_variable *bcc_ast_find_variable(struct bcc_ast *ast, struct bae_b
         list_foreach_entry(&current->variable_list, var, block_entry)
             if (strcmp(var->name, name) == 0)
                 return var;
+
+    list_foreach_entry(&func->param_list, var, block_entry)
+        if (strcmp(var->name, name) == 0)
+            return var;
 
     return NULL;
 }
