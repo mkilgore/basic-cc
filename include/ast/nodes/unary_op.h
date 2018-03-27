@@ -27,11 +27,9 @@ struct bae_unary_op {
     struct bcc_ast_entry *lvalue;
 };
 
-void bae_unary_op_clear(struct bcc_ast_entry *);
-
 #define BAE_UNARY_OP(e, op_type) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_UNARY_OP, bae_unary_op_clear), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_UNARY_OP), \
         .op = (op_type), \
     }
 
@@ -40,9 +38,9 @@ static inline void bae_unary_op_init(struct bae_unary_op *b, enum bcc_ast_unary_
     *b = (struct bae_unary_op)BAE_UNARY_OP(*b, t);
 }
 
-static inline struct bae_unary_op *create_bae_unary_op(enum bcc_ast_unary_op op)
+static inline struct bae_unary_op *create_bae_unary_op(struct bcc_ast *ast, enum bcc_ast_unary_op op)
 {
-    struct bae_unary_op *unary_op = malloc(sizeof(*unary_op));
+    struct bae_unary_op *unary_op = bcc_ast_entry_alloc(ast, struct bae_unary_op, NULL);
     bae_unary_op_init(unary_op, op);
     return unary_op;
 }

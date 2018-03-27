@@ -6,6 +6,7 @@
 #include "list.h"
 #include "type.h"
 #include "object_pool.h"
+#include "bump_alloc.h"
 
 enum bcc_ast_node_type {
     BCC_AST_NODE_LITERAL_NUMBER,
@@ -29,15 +30,12 @@ struct bcc_ast_entry {
     enum bcc_ast_node_type type;
     struct bcc_ast_type *node_type;
     list_node_t entry;
-
-    void (*clear) (struct bcc_ast_entry *);
 };
 
-#define BCC_AST_ENTRY_INIT(e, t, cle) \
+#define BCC_AST_ENTRY_INIT(e, t) \
     { \
         .type = (t), \
         .entry = LIST_NODE_INIT((e).entry), \
-        .clear = (cle), \
     }
 
 static inline size_t bae_size(struct bcc_ast_entry *ent)
@@ -63,16 +61,20 @@ struct bcc_ast {
      * It is more efficent to simply allocate them from a single allocator and
      * then free them all at once. */
     struct object_pool type_object_pool;
+
+    struct bump_alloc ast_entry_allocator;
 };
 
 /* Allocate two pages worth of memory at a time for the type objects */
 #define BCC_AST_TYPE_POOL_SIZE (4096 * 2 / sizeof(struct bcc_ast_type))
+#define BCC_AST_ENTRY_POOL_SIZE (4096 * 2)
 
 #define BCC_AST_INIT(ast) \
     { \
         .function_list = LIST_HEAD_INIT((ast).function_list), \
         .literal_string_list = LIST_HEAD_INIT((ast).literal_string_list), \
         .type_object_pool = OBJECT_POOL_INIT(sizeof(struct bcc_ast_type), BCC_AST_TYPE_POOL_SIZE), \
+        .ast_entry_allocator = BUMP_ALLOC_INIT(BCC_AST_ENTRY_POOL_SIZE), \
     }
 
 static inline void bcc_ast_init(struct bcc_ast *ast)
@@ -81,12 +83,6 @@ static inline void bcc_ast_init(struct bcc_ast *ast)
 }
 
 void bcc_ast_clear(struct bcc_ast *ast);
-
-static inline void bcc_ast_entry_clear(struct bcc_ast_entry *ent)
-{
-    if (ent)
-        (ent->clear) (ent);
-}
 
 enum bcc_ast_out_format {
     BCC_AST_OUT_ASM_X86,
@@ -107,5 +103,8 @@ void bcc_ast_add_function(struct bcc_ast *ast, struct bae_function *func);
 void bcc_ast_add_literal_string(struct bcc_ast *ast, struct bae_literal_string *lit_str);
 
 bool bcc_ast_entry_is_lvalue(struct bcc_ast_entry *);
+
+#define bcc_ast_entry_alloc(ast, ent_typ, cler_func) \
+    (ent_typ *)bump_alloc_get(&(ast)->ast_entry_allocator, sizeof(ent_typ), (void(*)(void *))(cler_func))
 
 #endif

@@ -5,16 +5,6 @@
 
 #include "ast/object_pool.h"
 
-/* If you're using C11, then we use alignof with max_align_t from <stdalign.h>
- * to determine the alignment for our objects */
-
-#if (__STDC_VERSION >= 20112L)
-# include <stdalign.h>
-# define MAX_ALIGNMENT alignof(max_align_t)
-#else
-# define MAX_ALIGNMENT 16
-#endif
-
 struct empty_object {
     struct empty_object *next;
 };

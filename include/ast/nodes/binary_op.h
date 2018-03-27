@@ -45,11 +45,9 @@ struct bae_binary_op {
     size_t operand_size;
 };
 
-void bae_binary_op_clear(struct bcc_ast_entry *);
-
 #define BAE_BINARY_OP(e, op_type) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_BINARY_OP, bae_binary_op_clear), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_BINARY_OP), \
         .op = (op_type), \
     }
 
@@ -58,9 +56,9 @@ static inline void bae_binary_op_init(struct bae_binary_op *b, enum bcc_ast_bina
     *b = (struct bae_binary_op)BAE_BINARY_OP(*b, t);
 }
 
-static inline struct bae_binary_op *create_bae_binary_op(enum bcc_ast_binary_op op)
+static inline struct bae_binary_op *create_bae_binary_op(struct bcc_ast *ast, enum bcc_ast_binary_op op)
 {
-    struct bae_binary_op *bin_op = malloc(sizeof(*bin_op));
+    struct bae_binary_op *bin_op = bcc_ast_entry_alloc(ast, struct bae_binary_op, NULL);
     bae_binary_op_init(bin_op, op);
     return bin_op;
 }

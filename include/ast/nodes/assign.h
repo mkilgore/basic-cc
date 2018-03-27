@@ -11,11 +11,9 @@ struct bae_assign {
     struct bcc_ast_entry *lvalue;
 };
 
-void bae_assign_clear(struct bcc_ast_entry *);
-
 #define BAE_ASSIGN_INIT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_ASSIGN, bae_assign_clear), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_ASSIGN), \
     }
 
 static inline void bae_assign_init(struct bae_assign *n)
@@ -23,9 +21,9 @@ static inline void bae_assign_init(struct bae_assign *n)
     *n = (struct bae_assign)BAE_ASSIGN_INIT(*n);
 }
 
-static inline struct bae_assign *create_bae_assign(void)
+static inline struct bae_assign *create_bae_assign(struct bcc_ast *ast)
 {
-    struct bae_assign *assign = malloc(sizeof(*assign));
+    struct bae_assign *assign = bcc_ast_entry_alloc(ast, struct bae_assign, NULL);
     bae_assign_init(assign);
     return assign;
 }

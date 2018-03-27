@@ -13,9 +13,6 @@ void bae_function_clear(struct bcc_ast_entry *fentry)
     }
 
     free(func->name);
-
-    bcc_ast_entry_clear(func->block);
-    free(func->block);
 }
 
 struct bcc_ast_variable *bae_function_get_temp_var(struct bae_function *func)

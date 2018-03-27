@@ -17,7 +17,7 @@ void bae_literal_string_clear(struct bcc_ast_entry *);
 
 #define BAE_LITERAL_STRING_INIT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_LITERAL_STRING, bae_literal_string_clear), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_LITERAL_STRING), \
         .literal_string_entry = LIST_NODE_INIT((e).literal_string_entry), \
     }
 
@@ -26,9 +26,9 @@ static inline void bae_literal_string_init(struct bae_literal_string *n)
     *n = (struct bae_literal_string)BAE_LITERAL_STRING_INIT(*n);
 }
 
-static inline struct bae_literal_string *create_bae_literal_string(void)
+static inline struct bae_literal_string *create_bae_literal_string(struct bcc_ast *ast)
 {
-    struct bae_literal_string *s = malloc(sizeof(*s));
+    struct bae_literal_string *s = bcc_ast_entry_alloc(ast, struct bae_literal_string, bae_literal_string_clear);
     bae_literal_string_init(s);
     return s;
 }

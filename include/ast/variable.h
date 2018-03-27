@@ -14,6 +14,7 @@ struct bcc_ast_variable {
 
     /* Used for list of variables within a function */
     list_node_t func_entry;
+
     /* Used for list of variables within a block */
     list_node_t block_entry;
 

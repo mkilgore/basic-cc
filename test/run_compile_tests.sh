@@ -7,7 +7,7 @@ echo
 mkdir -p /tmp/bcc
 TMP=/tmp/bcc
 
-rm $TMP/*
+rm -fr $TMP/*
 
 i=0
 FAILURE=0

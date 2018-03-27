@@ -30,14 +30,3 @@ const char *binary_op_string(enum bcc_ast_binary_op bin_op)
     return binary_op_str_table[bin_op];
 }
 
-void bae_binary_op_clear(struct bcc_ast_entry *entry)
-{
-    struct bae_binary_op *bin_op = container_of(entry, struct bae_binary_op, ent);
-
-    bcc_ast_entry_clear(bin_op->left);
-    free(bin_op->left);
-
-    bcc_ast_entry_clear(bin_op->right);
-    free(bin_op->right);
-}
-

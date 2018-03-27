@@ -33,8 +33,8 @@ static inline void temp_list_init(struct temp_list *t)
         YYABORT; \
     } while (0)
 
-static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right);
-static struct bcc_ast_entry *create_assignment(struct bcc_parser_state *, struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op);
+static struct bcc_ast_entry *create_bin_from_components(struct bcc_ast *ast, enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right);
+static struct bcc_ast_entry *create_assignment(struct bcc_ast *ast, struct bcc_parser_state *, struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op);
 
 enum bcc_ast_type_specifier {
     BCC_AST_TYPE_SPECIFIER_INT,
@@ -77,7 +77,7 @@ static inline enum bcc_ast_primitive_type specifier_to_prim(enum bcc_ast_type_sp
         if (bcc_ast_type_is_const((lval)->node_type)) \
             ABORT_WITH_ERROR(&(loc), "lvalue is const"); \
             \
-        struct bcc_ast_entry *assignment = create_assignment(state, (lval), (rval), (bin_op)); \
+        struct bcc_ast_entry *assignment = create_assignment(ast, state, (lval), (rval), (bin_op)); \
         if (!assignment) { \
             char *str1, *str2; \
             char buf[2048]; \
@@ -93,7 +93,7 @@ static inline enum bcc_ast_primitive_type specifier_to_prim(enum bcc_ast_type_sp
 
 #define BIN_OP(op, lval, rval, loc) \
     ({ \
-        struct bcc_ast_entry *bin_op = create_bin_from_components((op), (lval), (rval)); \
+        struct bcc_ast_entry *bin_op = create_bin_from_components(ast, (op), (lval), (rval)); \
         if (!bin_op) { \
             char *str1, *str2; \
             char buf[2048]; \
@@ -445,7 +445,7 @@ function_arg_list_or_empty
 paren_expression
     : '(' expression ')' { $$ = $2; }
     | TOK_IDENT {
-        struct bae_var *var = create_bae_var();
+        struct bae_var *var = create_bae_var(ast);
         var->var = bcc_ast_find_variable(ast, state->current_func, state->current_scope, $1);
 
         if (!var->var)
@@ -456,12 +456,12 @@ paren_expression
         $$ = &var->ent;
     }
     | TOK_NUMBER {
-        struct bae_literal_number *lit_num = create_bae_literal_number($1);
+        struct bae_literal_number *lit_num = create_bae_literal_number(ast, $1);
         lit_num->ent.node_type = &bcc_ast_type_int_zero;
         $$ = &lit_num->ent;
     }
     | string {
-        struct bae_literal_string *lit_str = create_bae_literal_string();
+        struct bae_literal_string *lit_str = create_bae_literal_string(ast);
         lit_str->ent.node_type = &bcc_ast_type_char_ptr;
         lit_str->str = $1;
         bcc_ast_add_literal_string(ast, lit_str);
@@ -474,7 +474,7 @@ unary_postfix_expression
         if (!bcc_ast_entry_is_lvalue($1))
             ABORT_WITH_ERROR(&@1, "Left of decrement is not an lvalue");
 
-        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_MINUSMINUS_POSTFIX);
+        struct bae_unary_op *op = create_bae_unary_op(ast, BCC_AST_UNARY_OP_MINUSMINUS_POSTFIX);
         op->lvalue = $1;
         op->expr = op->lvalue;
         op->ent.node_type = $1->node_type;
@@ -484,7 +484,7 @@ unary_postfix_expression
         if (!bcc_ast_entry_is_lvalue($1))
             ABORT_WITH_ERROR(&@1, "Left of increment is not an lvalue");
 
-        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_PLUSPLUS_POSTFIX);
+        struct bae_unary_op *op = create_bae_unary_op(ast, BCC_AST_UNARY_OP_PLUSPLUS_POSTFIX);
         op->lvalue = $1;
         op->expr = op->lvalue;
         op->ent.node_type = $1->node_type;
@@ -494,11 +494,11 @@ unary_postfix_expression
         if (!bcc_ast_type_is_pointer($1->node_type))
             ABORT_WITH_ERROR(&@1, "Invalid Unary");
 
-        struct bcc_ast_entry *bin_op = create_bin_from_components(BCC_AST_BINARY_OP_PLUS, $1, $3);
+        struct bcc_ast_entry *bin_op = create_bin_from_components(ast, BCC_AST_BINARY_OP_PLUS, $1, $3);
         if (!bin_op)
             ABORT_WITH_ERROR(&@3, "Invalid index");
 
-        struct bae_unary_op *uop = create_bae_unary_op(BCC_AST_UNARY_OP_DEREF);
+        struct bae_unary_op *uop = create_bae_unary_op(ast, BCC_AST_UNARY_OP_DEREF);
         uop->expr = bin_op;
         uop->ent.node_type = bin_op->node_type->inner;
         $$ = &uop->ent;
@@ -526,7 +526,7 @@ unary_postfix_expression
                     continue;
 
                 if (bcc_ast_type_implicit_cast_exists(arg->node_type, param->type)) {
-                    struct bae_cast *cast = create_bae_cast();
+                    struct bae_cast *cast = create_bae_cast(ast);
                     cast->expr = arg;
                     cast->target = param->type;
                     cast->ent.node_type = cast->target;
@@ -551,7 +551,7 @@ unary_postfix_expression
                 arg = list_next_entry(arg, entry)) {
 
                 if (bcc_ast_type_is_integer(arg->node_type)) {
-                    struct bae_cast *cast = create_bae_cast();
+                    struct bae_cast *cast = create_bae_cast(ast);
                     cast->expr = arg;
                     cast->target = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
                     cast->ent.node_type = cast->target;
@@ -564,7 +564,7 @@ unary_postfix_expression
             }
         }
 
-        struct bae_func_call *call = create_bae_func_call();
+        struct bae_func_call *call = create_bae_func_call(ast);
         call->func = bcc_ast_find_function(ast, $1);
         call->ent.node_type = call->func->ret_type;
 
@@ -582,13 +582,13 @@ unary_postfix_expression
 unary_expression
     : unary_postfix_expression
     | '-' unary_expression {
-        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_MINUS);
+        struct bae_unary_op *op = create_bae_unary_op(ast, BCC_AST_UNARY_OP_MINUS);
         op->expr = $2;
         op->ent.node_type = $2->node_type;
         $$ = &op->ent;
     }
     | '+' unary_expression {
-        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_PLUS);
+        struct bae_unary_op *op = create_bae_unary_op(ast, BCC_AST_UNARY_OP_PLUS);
         op->expr = $2;
         op->ent.node_type = $2->node_type;
         $$ = &op->ent;
@@ -597,7 +597,7 @@ unary_expression
         if (!bcc_ast_entry_is_lvalue($2))
             ABORT_WITH_ERROR(&@1, "Right of decrement is not an lvalue");
 
-        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_MINUSMINUS);
+        struct bae_unary_op *op = create_bae_unary_op(ast, BCC_AST_UNARY_OP_MINUSMINUS);
         op->lvalue = $2;
         op->expr = op->lvalue;
         op->ent.node_type = $2->node_type;
@@ -607,7 +607,7 @@ unary_expression
         if (!bcc_ast_entry_is_lvalue($2))
             ABORT_WITH_ERROR(&@1, "Right of increment is not an lvalue");
 
-        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_PLUSPLUS);
+        struct bae_unary_op *op = create_bae_unary_op(ast, BCC_AST_UNARY_OP_PLUSPLUS);
         op->lvalue = $2;
         op->expr = op->lvalue;
         op->ent.node_type = $2->node_type;
@@ -626,26 +626,26 @@ unary_expression
             if (!bcc_ast_entry_is_lvalue($2))
                 ABORT_WITH_ERROR(&@1, "Right of address-of is not an lvalue");
 
-            struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_ADDRESS_OF);
+            struct bae_unary_op *op = create_bae_unary_op(ast, BCC_AST_UNARY_OP_ADDRESS_OF);
             op->lvalue = $2;
             op->ent.node_type = create_bcc_ast_type_pointer(ast, $2->node_type);
             $$ = &op->ent;
         }
     }
     | '!' unary_expression {
-        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_NOT);
+        struct bae_unary_op *op = create_bae_unary_op(ast, BCC_AST_UNARY_OP_NOT);
         op->expr = $2;
         op->ent.node_type = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
         $$ = &op->ent;
     }
     | '~' unary_expression {
-        struct bae_unary_op *op = create_bae_unary_op(BCC_AST_UNARY_OP_BITWISE_NOT);
+        struct bae_unary_op *op = create_bae_unary_op(ast, BCC_AST_UNARY_OP_BITWISE_NOT);
         op->expr = $2;
         op->ent.node_type = $2->node_type;
         $$ = &op->ent;
     }
     | '*' unary_expression {
-        struct bae_unary_op *uop = create_bae_unary_op(BCC_AST_UNARY_OP_DEREF);
+        struct bae_unary_op *uop = create_bae_unary_op(ast, BCC_AST_UNARY_OP_DEREF);
         uop->expr = $2;
         uop->ent.node_type = $2->node_type->inner;
         $$ = &uop->ent;
@@ -670,7 +670,7 @@ unary_expression
             ABORT_WITH_ERROR(&@2, "Invalid cast");
         }
 
-        cast = create_bae_cast();
+        cast = create_bae_cast(ast);
         cast->expr = $4;
         cast->target = target;
         cast->ent.node_type = target;
@@ -769,7 +769,7 @@ declaration_optional_assignment
         free(str1);
 
         /* Create a new assignment of the expression to the just created variable */
-        struct bae_var *store = create_bae_var();
+        struct bae_var *store = create_bae_var(ast);
         store->var = var;
         store->ent.node_type = var->type;
 
@@ -777,14 +777,14 @@ declaration_optional_assignment
         bool const_is_set = flag_test(&var->type->qualifier_flags, BCC_AST_TYPE_QUALIFIER_CONST);
         flag_clear(&var->type->qualifier_flags, BCC_AST_TYPE_QUALIFIER_CONST);
 
-        struct bcc_ast_entry *assign = create_assignment(state, &store->ent, $3, BCC_AST_BINARY_OP_MAX);
+        struct bcc_ast_entry *assign = create_assignment(ast, state, &store->ent, $3, BCC_AST_BINARY_OP_MAX);
         if (!assign)
             ABORT_WITH_ERROR(&@2, "Assignment not valid");
 
         if (const_is_set)
             flag_set(&var->type->qualifier_flags, BCC_AST_TYPE_QUALIFIER_CONST);
 
-        struct bae_expression_stmt *stmt = create_bae_expression_stmt();
+        struct bae_expression_stmt *stmt = create_bae_expression_stmt(ast);
         stmt->expression = assign;
         bae_block_add_entry(state->current_scope, &stmt->ent);
     }
@@ -801,31 +801,31 @@ declaration
 
 statement
     : expression ';' {
-        struct bae_expression_stmt *stmt = create_bae_expression_stmt();
+        struct bae_expression_stmt *stmt = create_bae_expression_stmt(ast);
         stmt->expression = $1;
         $$ = &stmt->ent;
     }
     | TOK_IF '(' expression ')' optional_block %prec "then" {
-        struct bae_if *i = create_bae_if();
+        struct bae_if *i = create_bae_if(ast);
         i->if_expression = $3;
         i->block = $5;
         $$ = &i->ent;
     }
     | TOK_IF '(' expression ')' optional_block TOK_ELSE optional_block {
-        struct bae_if *i = create_bae_if();
+        struct bae_if *i = create_bae_if(ast);
         i->if_expression = $3;
         i->block = $5;
         i->else_block = $7;
         $$ = &i->ent;
     }
     | TOK_WHILE '(' expression ')' optional_block {
-        struct bae_while *w = create_bae_while();
+        struct bae_while *w = create_bae_while(ast);
         w->condition = $3;
         w->block = $5;
         $$ = &w->ent;
     }
     | TOK_RETURN expression ';' {
-        struct bae_return *r = create_bae_return();
+        struct bae_return *r = create_bae_return(ast);
         r->ret_value = $2;
         $$ = &r->ent;
     }
@@ -840,7 +840,7 @@ optional_block
 
 block
     : %empty {
-        struct bae_block *block = create_bae_block();
+        struct bae_block *block = create_bae_block(ast);
         block->outer_block = state->current_scope;
         state->current_scope = block;
         $$ = &block->ent;
@@ -879,7 +879,7 @@ parameter_list_or_empty
 
 function_declaration
     : type_base TOK_IDENT '(' parameter_list_or_empty ')' {
-        struct bae_function *func = create_bae_function($2);
+        struct bae_function *func = create_bae_function(ast, $2);
         func->ret_type = $1;
         func->has_ellipsis = $4;
         state->current_func = func;
@@ -1002,12 +1002,12 @@ static void specifier_add_to_type(struct bcc_ast_type *type, int specifier)
     }
 }
 
-static struct bcc_ast_entry *create_bin_ptr_op(enum bcc_ast_binary_op op, struct bcc_ast_entry *ptr, struct bcc_ast_entry *val, int ptr_is_first)
+static struct bcc_ast_entry *create_bin_ptr_op(struct bcc_ast *ast, enum bcc_ast_binary_op op, struct bcc_ast_entry *ptr, struct bcc_ast_entry *val, int ptr_is_first)
 {
     size_t ptr_size = ptr->node_type->inner->size;
 
     if (val->node_type->size < ptr_size) {
-        struct bae_cast *cast = create_bae_cast();
+        struct bae_cast *cast = create_bae_cast(ast);
         cast->expr = val;
         cast->target = bcc_ast_type_primitives + BCC_AST_PRIM_LONG;
         cast->ent.node_type = cast->target;
@@ -1015,7 +1015,7 @@ static struct bcc_ast_entry *create_bin_ptr_op(enum bcc_ast_binary_op op, struct
         val = &cast->ent;
     }
 
-    struct bae_binary_op *bin_op = create_bae_binary_op(op);
+    struct bae_binary_op *bin_op = create_bae_binary_op(ast, op);
     bin_op->operand_size = ptr_size;
     bin_op->ent.node_type = ptr->node_type;
 
@@ -1030,7 +1030,7 @@ static struct bcc_ast_entry *create_bin_ptr_op(enum bcc_ast_binary_op op, struct
     return &bin_op->ent;
 }
 
-static struct bcc_ast_entry *create_ptr_bin_from_components(enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right)
+static struct bcc_ast_entry *create_ptr_bin_from_components(struct bcc_ast *ast, enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right)
 {
     struct bae_binary_op *bin_op;
 
@@ -1038,9 +1038,9 @@ static struct bcc_ast_entry *create_ptr_bin_from_components(enum bcc_ast_binary_
     switch (op) {
     case BCC_AST_BINARY_OP_PLUS:
         if (bcc_ast_type_is_pointer(left->node_type) && bcc_ast_type_is_integer(right->node_type)) {
-            return create_bin_ptr_op(BCC_AST_BINARY_OP_ADDR_ADD_INDEX, left, right, 1);
+            return create_bin_ptr_op(ast, BCC_AST_BINARY_OP_ADDR_ADD_INDEX, left, right, 1);
         } else if (bcc_ast_type_is_pointer(right->node_type) && bcc_ast_type_is_integer(left->node_type)) {
-            return create_bin_ptr_op(BCC_AST_BINARY_OP_ADDR_ADD_INDEX, left, right, 0);
+            return create_bin_ptr_op(ast, BCC_AST_BINARY_OP_ADDR_ADD_INDEX, left, right, 0);
         } else {
             return NULL;
         }
@@ -1048,11 +1048,11 @@ static struct bcc_ast_entry *create_ptr_bin_from_components(enum bcc_ast_binary_
 
     case BCC_AST_BINARY_OP_MINUS:
         if (bcc_ast_type_is_pointer(left->node_type) && bcc_ast_type_is_integer(right->node_type)) {
-            return create_bin_ptr_op(BCC_AST_BINARY_OP_ADDR_SUB_INDEX, left, right, 1);
+            return create_bin_ptr_op(ast, BCC_AST_BINARY_OP_ADDR_SUB_INDEX, left, right, 1);
         } else if (bcc_ast_type_is_pointer(right->node_type) && bcc_ast_type_is_integer(left->node_type)) {
-            return create_bin_ptr_op(BCC_AST_BINARY_OP_ADDR_SUB_INDEX, left, right, 0);
+            return create_bin_ptr_op(ast, BCC_AST_BINARY_OP_ADDR_SUB_INDEX, left, right, 0);
         } else if (bcc_ast_type_is_pointer(right->node_type) && bcc_ast_type_is_pointer(left->node_type)) {
-            struct bae_binary_op *bin_op = create_bae_binary_op(BCC_AST_BINARY_OP_ADDR_SUB);
+            struct bae_binary_op *bin_op = create_bae_binary_op(ast, BCC_AST_BINARY_OP_ADDR_SUB);
             bin_op->operand_size = bae_size(right);
             bin_op->left = left;
             bin_op->right = right;
@@ -1069,7 +1069,7 @@ static struct bcc_ast_entry *create_ptr_bin_from_components(enum bcc_ast_binary_
     case BCC_AST_BINARY_OP_LESS_THAN_EQUAL:
     case BCC_AST_BINARY_OP_NOT_EQUAL:
     case BCC_AST_BINARY_OP_DOUBLEEQUAL:
-        bin_op = create_bae_binary_op(op);
+        bin_op = create_bae_binary_op(ast, op);
 
         bin_op->left = left;
         bin_op->right = right;
@@ -1081,10 +1081,10 @@ static struct bcc_ast_entry *create_ptr_bin_from_components(enum bcc_ast_binary_
     }
 }
 
-static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right)
+static struct bcc_ast_entry *create_bin_from_components(struct bcc_ast *ast, enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right)
 {
     if (bcc_ast_type_is_pointer(left->node_type) || bcc_ast_type_is_pointer(right->node_type))
-        return create_ptr_bin_from_components(op, left, right);
+        return create_ptr_bin_from_components(ast, op, left, right);
 
     if (bcc_ast_type_is_integer(left->node_type) && bcc_ast_type_is_integer(right->node_type)) {
         size_t size_left = bae_size(left);
@@ -1092,14 +1092,14 @@ static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op o
 
         /* Also check and handle unsigned casting */
         if (size_left < size_right) {
-            struct bae_cast *cast = create_bae_cast();
+            struct bae_cast *cast = create_bae_cast(ast);
             cast->expr = left;
             cast->target = right->node_type;
             cast->ent.node_type = cast->target;
 
             left = &cast->ent;
         } else if (size_right < size_left) {
-            struct bae_cast *cast = create_bae_cast();
+            struct bae_cast *cast = create_bae_cast(ast);
             cast->expr = right;
             cast->target = left->node_type;
             cast->ent.node_type = cast->target;
@@ -1108,7 +1108,7 @@ static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op o
         }
     }
 
-    struct bae_binary_op *bin_op = create_bae_binary_op(op);
+    struct bae_binary_op *bin_op = create_bae_binary_op(ast, op);
 
     bin_op->left = left;
     bin_op->right = right;
@@ -1116,7 +1116,7 @@ static struct bcc_ast_entry *create_bin_from_components(enum bcc_ast_binary_op o
     return &bin_op->ent;
 }
 
-static struct bcc_ast_entry *create_assignment(struct bcc_parser_state *state, struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op)
+static struct bcc_ast_entry *create_assignment(struct bcc_ast *ast, struct bcc_parser_state *state, struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op)
 {
     struct bcc_ast_variable *temp_var = NULL;
     struct bcc_ast_entry *optional_expr = NULL;
@@ -1128,11 +1128,11 @@ static struct bcc_ast_entry *create_assignment(struct bcc_parser_state *state, s
         switch (lvalue->type) {
         case BCC_AST_NODE_VAR:
             old = container_of(lvalue, struct bae_var, ent);
-            v = create_bae_var();
+            v = create_bae_var(ast);
             v->var = old->var;
             v->ent.node_type = old->ent.node_type;
 
-            rvalue = create_bin_from_components(bin_op, &v->ent, rvalue);
+            rvalue = create_bin_from_components(ast, bin_op, &v->ent, rvalue);
             if (!rvalue)
                 return NULL;
 
@@ -1177,14 +1177,14 @@ static struct bcc_ast_entry *create_assignment(struct bcc_parser_state *state, s
         if (!bcc_ast_type_implicit_cast_exists(rvalue->node_type, lvalue->node_type))
             return false;
 
-        struct bae_cast *cast = create_bae_cast();
+        struct bae_cast *cast = create_bae_cast(ast);
         cast->expr = rvalue;
         cast->target = lvalue->node_type;
 
         rvalue = &cast->ent;
     }
 
-    struct bae_assign *assign = create_bae_assign();
+    struct bae_assign *assign = create_bae_assign(ast);
     assign->optional_expr = optional_expr;
     assign->lvalue = lvalue;
     assign->rvalue = rvalue;

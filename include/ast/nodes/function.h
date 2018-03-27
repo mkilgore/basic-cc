@@ -26,7 +26,7 @@ void bae_function_clear(struct bcc_ast_entry *);
 
 #define BAE_FUNCTION_INIT(e, nam) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_FUNCTION, bae_function_clear), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_FUNCTION), \
         .name = (nam), \
         .function_entry = LIST_NODE_INIT((e).function_entry), \
         .local_variable_list = LIST_HEAD_INIT((e).local_variable_list), \
@@ -39,9 +39,9 @@ static inline void bae_function_init(struct bae_function *f, char *name)
     *f = (struct bae_function)BAE_FUNCTION_INIT(*f, name);
 }
 
-static inline struct bae_function *create_bae_function(char *name)
+static inline struct bae_function *create_bae_function(struct bcc_ast *ast, char *name)
 {
-    struct bae_function *func = malloc(sizeof(*func));
+    struct bae_function *func = bcc_ast_entry_alloc(ast, struct bae_function, bae_function_clear);
     bae_function_init(func, name);
     return func;
 }

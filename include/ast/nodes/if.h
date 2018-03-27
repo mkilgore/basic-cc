@@ -11,11 +11,9 @@ struct bae_if {
     struct bcc_ast_entry *else_block;
 };
 
-void bae_if_clear(struct bcc_ast_entry *);
-
 #define BAE_IF_INIT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_IF, bae_if_clear), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_IF), \
     }
 
 static inline void bae_if_init(struct bae_if *i)
@@ -23,9 +21,9 @@ static inline void bae_if_init(struct bae_if *i)
     *i = (struct bae_if)BAE_IF_INIT(*i);
 }
 
-static inline struct bae_if *create_bae_if(void)
+static inline struct bae_if *create_bae_if(struct bcc_ast *ast)
 {
-    struct bae_if *i = malloc(sizeof(*i));
+    struct bae_if *i = bcc_ast_entry_alloc(ast, struct bae_if, NULL);
     bae_if_init(i);
     return i;
 }

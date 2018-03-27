@@ -133,12 +133,13 @@ void bcc_ast_add_function(struct bcc_ast *ast, struct bae_function *func)
 
 void bcc_ast_clear(struct bcc_ast *ast)
 {
-    struct bae_function *func;
+    //struct bae_function *func;
 
-    list_foreach_take_entry(&ast->function_list, func, function_entry) {
-        bcc_ast_entry_clear(&func->ent);
-        free(func);
-    }
+    //list_foreach_take_entry(&ast->function_list, func, function_entry) {
+    //    bcc_ast_entry_clear(&func->ent);
+    //    free(func);
+    //}
+    bump_alloc_free_all(&ast->ast_entry_allocator);
 
     object_pool_clear(&ast->type_object_pool);
 }

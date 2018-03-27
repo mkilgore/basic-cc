@@ -6,4 +6,5 @@ subdir-y += nodes
 objs-y += ast.o
 objs-y += type.o
 objs-y += object_pool.o
+objs-y += bump_alloc.o
 

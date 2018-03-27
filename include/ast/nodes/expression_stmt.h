@@ -9,11 +9,9 @@ struct bae_expression_stmt {
     struct bcc_ast_entry *expression;
 };
 
-void bae_expression_stmt_clear(struct bcc_ast_entry *);
-
 #define BAE_EXPRESSION_STMT(e) \
     { \
-        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_EXPRESSION_STMT, bae_expression_stmt_clear), \
+        .ent = BCC_AST_ENTRY_INIT((e).ent, BCC_AST_NODE_EXPRESSION_STMT), \
     }
 
 static inline void bae_expression_stmt_init(struct bae_expression_stmt *s)
@@ -21,9 +19,9 @@ static inline void bae_expression_stmt_init(struct bae_expression_stmt *s)
     *s = (struct bae_expression_stmt)BAE_EXPRESSION_STMT(*s);
 }
 
-static inline struct bae_expression_stmt *create_bae_expression_stmt(void)
+static inline struct bae_expression_stmt *create_bae_expression_stmt(struct bcc_ast *ast)
 {
-    struct bae_expression_stmt *stmt = malloc(sizeof(*stmt));
+    struct bae_expression_stmt *stmt = bcc_ast_entry_alloc(ast, struct bae_expression_stmt, NULL);
     bae_expression_stmt_init(stmt);
     return stmt;
 }
