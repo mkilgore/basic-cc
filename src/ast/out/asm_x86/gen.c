@@ -165,6 +165,13 @@ static void gen_bcc_ast_function(struct gen_state *state, struct bae_function *f
         }
 
         gen_bcc_ast_entry(state, func->block);
+
+        /* Thie exists for `void` functions, which aren't required to end with a `return` statement.
+         * It also means that functions that return a value, but the return was
+         * forgotten, they will still return (Though the return value will be
+         * garbage */
+        gen_out(state, "    leave\n");
+        gen_out(state, "    ret\n");
     } else {
         gen_out(state, ".extern %s\n", func->name);
     }

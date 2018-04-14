@@ -16,6 +16,11 @@ $(srctree)/lexer.l: $(srctree)/parser.tab.h
 objs-y += parser.tab.o
 objs-y += lexer.o
 
+objs-y += specifier_utils.o
+objs-y += assign_create.o
+objs-y += binop_create.o
+objs-y += func_param_check.o
+
 clean-list-y += lexer.c
 
 # Tell make not to delete the temporary parser files.

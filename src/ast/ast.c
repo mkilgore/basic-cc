@@ -150,3 +150,47 @@ void bcc_ast_add_literal_string(struct bcc_ast *ast, struct bae_literal_string *
     list_add_tail(&ast->literal_string_list, &lit_str->literal_string_entry);
 }
 
+struct bcc_ast_entry *bcc_ast_entry_integer_promotion(struct bcc_ast *ast, struct bcc_ast_entry *original)
+{
+    struct bae_cast *cast;
+
+    if (original->node_type->node_type != BCC_AST_TYPE_PRIM)
+        return original;
+
+    switch (original->node_type->prim) {
+    case BCC_AST_PRIM_CHAR:
+    case BCC_AST_PRIM_SHORT:
+        cast = create_bae_cast(ast);
+        cast->expr = original;
+        cast->target = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
+
+        cast->ent.node_type = cast->target;
+        return &cast->ent;
+
+    default:
+        return original;
+    }
+}
+
+struct bcc_ast_entry *bcc_ast_entry_conv(struct bcc_ast *ast, struct bcc_ast_entry *original)
+{
+    struct bae_unary_op *uop;
+
+    switch (original->node_type->node_type) {
+    case BCC_AST_TYPE_FUNCTION:
+        uop = create_bae_unary_op(ast, BCC_AST_UNARY_OP_ADDRESS_OF);
+        uop->lvalue = original;
+
+        uop->ent.node_type = create_bcc_ast_type_pointer(ast, original->node_type);
+        return &uop->ent;
+
+    default:
+        return original;
+    }
+}
+
+struct bcc_ast_entry *bcc_ast_entry_conv_with_promotion(struct bcc_ast *ast, struct bcc_ast_entry *original)
+{
+    return bcc_ast_entry_conv(ast, bcc_ast_entry_integer_promotion(ast, original));
+}
+

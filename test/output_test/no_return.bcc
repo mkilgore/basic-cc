@@ -1,0 +1,15 @@
+
+int printf(const char *, ...);
+
+void main2()
+{
+    printf("test");
+}
+
+int main()
+{
+    main2();
+    main2();
+
+    return 0;
+}

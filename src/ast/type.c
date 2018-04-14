@@ -154,26 +154,6 @@ bool bcc_ast_type_implicit_cast_exists(struct bcc_ast_type *current, struct bcc_
     return false;
 }
 
-#if 0
-/* Returns the resulting target type */
-struct bcc_ast_type *bcc_ast_type_implicit_cast_exists(struct bcc_ast_type *first, struct bcc_ast_type *second)
-{
-    /* Void * casts */
-    if (is_void_pointer(first) && second->node_type == BCC_AST_TYPE_POINTER)
-        return second;
-
-    if (is_void_pointer(second) && first->node_type == BCC_AST_TYPE_POINTER)
-        return first;
-
-    /* If we don't have a void *, then there are no other implicit conversions if either type is a pointer */
-    if (first->node_type == BCC_AST_TYPE_POINTER || second->node_type == BCC_AST_TYPE_POINTER)
-        return NULL;
-
-    /* Int casts go here */
-    return NULL;
-}
-#endif
-
 bool bcc_ast_type_is_integer(struct bcc_ast_type *type)
 {
     if (type->node_type != BCC_AST_TYPE_PRIM)
@@ -199,6 +179,30 @@ struct bcc_ast_type *bcc_ast_type_integer_promotion(struct bcc_ast_type *first, 
 int bcc_ast_type_are_compatible(struct bcc_ast_type *first, struct bcc_ast_type *second)
 {
     return 0;
+}
+
+struct bcc_ast_type *bcc_ast_type_clone(struct bcc_ast *ast, struct bcc_ast_type *original)
+{
+    struct bcc_ast_type *type = create_bcc_ast_type(ast);
+    type->node_type = original->node_type;
+    type->prim = original->prim;
+    type->size = original->size;
+    type->qualifier_flags = original->qualifier_flags;
+    type->is_unsigned = original->is_unsigned;
+    type->is_zero = original->is_zero;
+    type->inner = original->inner;
+
+    if (original->node_type == BCC_AST_TYPE_FUNCTION) {
+        /* Clone the parameter list types */
+        struct bcc_ast_type *param;
+
+        list_foreach_entry(&original->param_list, param, param_entry) {
+            struct bcc_ast_type *new = bcc_ast_type_clone(ast, param);
+            list_add_tail(&original->param_list, &new->param_entry);
+        }
+    }
+
+    return type;
 }
 
 char *bcc_ast_type_get_name(struct bcc_ast_type *type)

@@ -1,0 +1,14 @@
+
+int printf(const char *, ...);
+
+int main()
+{
+    int a = 0;
+    int *b = &a;
+
+    *b = 20;
+
+    printf("%d\n", a);
+
+    return 0;
+}

@@ -8,8 +8,6 @@ struct bcc_parser_state {
     struct bae_block *current_scope;
     struct bae_function *current_func;
 
-    list_head_t temp_param_list;
-
     struct bcc_ast_type *declaration_type;
 
     enum lexing_state {
@@ -34,7 +32,6 @@ struct bcc_parser_state {
 
 #define BCC_PARSER_STATE_INIT(e) \
     { \
-        .temp_param_list = LIST_HEAD_INIT((e).temp_param_list), \
     }
 
 static inline void bcc_parser_state_init(struct bcc_parser_state *state)

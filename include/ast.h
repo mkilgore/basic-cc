@@ -3,6 +3,7 @@
 
 #include "ast/variable.h"
 
+#include "ast/type.h"
 #include "ast/ast.h"
 
 #include "ast/nodes/binary_op.h"

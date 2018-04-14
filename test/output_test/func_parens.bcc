@@ -1,0 +1,16 @@
+
+int printf(const char *, ...);
+
+int main2(int a)
+{
+    printf("%d", a);
+    return 0;
+}
+
+int main()
+{
+    (main2) (2);
+    ((((((main2)))))) (20);
+
+    return 0;
+}

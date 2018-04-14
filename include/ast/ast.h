@@ -104,6 +104,10 @@ void bcc_ast_add_literal_string(struct bcc_ast *ast, struct bae_literal_string *
 
 bool bcc_ast_entry_is_lvalue(struct bcc_ast_entry *);
 
+struct bcc_ast_entry *bcc_ast_entry_integer_promotion(struct bcc_ast *ast, struct bcc_ast_entry *original);
+struct bcc_ast_entry *bcc_ast_entry_conv(struct bcc_ast *ast, struct bcc_ast_entry *original);
+struct bcc_ast_entry *bcc_ast_entry_conv_with_promotion(struct bcc_ast *ast, struct bcc_ast_entry *original);
+
 #define bcc_ast_entry_alloc(ast, ent_typ, cler_func) \
     (ent_typ *)bump_alloc_get(&(ast)->ast_entry_allocator, sizeof(ent_typ), (void(*)(void *))(cler_func))
 

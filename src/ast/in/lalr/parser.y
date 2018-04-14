@@ -8,6 +8,10 @@
 
 #include "lexer.h"
 #include "parser.h"
+#include "specifier_utils.h"
+#include "binop_create.h"
+#include "assign_create.h"
+#include "func_param_check.h"
 
 #include "ast.h"
 
@@ -32,45 +36,6 @@ static inline void temp_list_init(struct temp_list *t)
         parser_error((tok), scanner, (str)); \
         YYABORT; \
     } while (0)
-
-static struct bcc_ast_entry *create_bin_from_components(struct bcc_ast *ast, enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right);
-static struct bcc_ast_entry *create_assignment(struct bcc_ast *ast, struct bcc_parser_state *, struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op);
-
-enum bcc_ast_type_specifier {
-    BCC_AST_TYPE_SPECIFIER_INT,
-    BCC_AST_TYPE_SPECIFIER_LONG,
-    BCC_AST_TYPE_SPECIFIER_UNSIGNED,
-    BCC_AST_TYPE_SPECIFIER_SIGNED,
-    BCC_AST_TYPE_SPECIFIER_SHORT,
-    BCC_AST_TYPE_SPECIFIER_CHAR,
-    BCC_AST_TYPE_SPECIFIER_VOID,
-};
-
-static bool specifier_is_invalid(flags_t specifiers, int new_specifier);
-static void specifier_add_to_type(struct bcc_ast_type *type, int specifier);
-
-static inline enum bcc_ast_primitive_type specifier_to_prim(enum bcc_ast_type_specifier spec)
-{
-    switch (spec) {
-    case BCC_AST_TYPE_SPECIFIER_INT:
-        return BCC_AST_PRIM_INT;
-
-    case BCC_AST_TYPE_SPECIFIER_CHAR:
-        return BCC_AST_PRIM_CHAR;
-
-    case BCC_AST_TYPE_SPECIFIER_SHORT:
-        return BCC_AST_PRIM_SHORT;
-
-    case BCC_AST_TYPE_SPECIFIER_LONG:
-        return BCC_AST_PRIM_LONG;
-
-    case BCC_AST_TYPE_SPECIFIER_VOID:
-        return BCC_AST_PRIM_VOID;
-
-    default:
-        return BCC_AST_PRIM_MAX;
-    }
-}
 
 #define ASSIGNMENT(lval, rval, loc, bin_op) \
     ({ \
@@ -167,6 +132,11 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
         struct bcc_ast_type *type;
         flags_t specifier_flags;
     } type_base;
+
+    struct {
+        struct temp_list *param_list;
+        int has_elipsis;
+    } func_param_list;
 }
 
 %define api.pure full
@@ -221,7 +191,9 @@ void yyerror(YYLTYPE *, struct bcc_ast *ast, struct bcc_parser_state *state, yys
 
 %type <param> parameter
 
-%type <ival> parameter_list_optional_ellipsis parameter_list_or_empty
+%type <func_param_list> parameter_list_optional_ellipsis
+%type <func_param_list> parameter_list_or_empty
+%type <func_param_list> parameter_list
 
 %type <temp_list> function_arg_list
 %type <temp_list> function_arg_list_or_empty
@@ -445,15 +417,24 @@ function_arg_list_or_empty
 paren_expression
     : '(' expression ')' { $$ = $2; }
     | TOK_IDENT {
-        struct bae_var *var = create_bae_var(ast);
-        var->var = bcc_ast_find_variable(ast, state->current_func, state->current_scope, $1);
+        struct bcc_ast_variable *variable = bcc_ast_find_variable(ast, state->current_func, state->current_scope, $1);
 
-        if (!var->var)
-            ABORT_WITH_ERROR(&@1, "Unknown variable name");
+        if (variable) {
+            struct bae_var *var = create_bae_var(ast);
+            var->var = variable;
 
-        var->ent.node_type = var->var->type;
-        free($1);
-        $$ = &var->ent;
+            var->ent.node_type = var->var->type;
+            free($1);
+            $$ = &var->ent;
+        } else {
+            struct bae_function *func = bcc_ast_find_function(ast, $1);
+            free($1);
+            if (func) {
+                $$ = &func->ent;
+            } else {
+                ABORT_WITH_ERROR(&@1, "Unknown identifier");
+            }
+        }
     }
     | TOK_NUMBER {
         struct bae_literal_number *lit_num = create_bae_literal_number(ast, $1);
@@ -503,69 +484,20 @@ unary_postfix_expression
         uop->ent.node_type = bin_op->node_type->inner;
         $$ = &uop->ent;
     }
-    | TOK_IDENT '(' function_arg_list_or_empty ')' {
-        struct bae_function *func = bcc_ast_find_function(ast, $1);
-        struct bcc_ast_variable *param;
-        struct bcc_ast_entry *arg;
+    | unary_postfix_expression '(' function_arg_list_or_empty ')' {
+        struct bae_function *func;
+        const char *errmsg;
 
-        if (!$3) {
-            if (!list_empty(&func->param_list))
-                ABORT_WITH_ERROR(&@3, "Not enough arguments supplied to function");
-        } else {
-            /*
-             * Type checking and casting for arguments
-             * This looks horrible, but we're really just looping through two lists at a time.
-             */
-            for (param = list_first_entry(&func->param_list, struct bcc_ast_variable, block_entry),
-                 arg   = list_first_entry(&$3->head, struct bcc_ast_entry, entry);
-                 !list_ptr_is_head(&func->param_list, &param->block_entry) && !list_ptr_is_head(&$3->head, &arg->entry);
-                 param = list_next_entry(param, block_entry),
-                 arg   = list_next_entry(arg, entry)) {
+        if ($1->node_type->node_type != BCC_AST_TYPE_FUNCTION)
+            ABORT_WITH_ERROR(&@1, "Value not a function or function pointer");
 
-                if (bcc_ast_type_lvalue_identical_to_rvalue(param->type, arg->node_type))
-                    continue;
+        func = container_of($1, struct bae_function, ent);
 
-                if (bcc_ast_type_implicit_cast_exists(arg->node_type, param->type)) {
-                    struct bae_cast *cast = create_bae_cast(ast);
-                    cast->expr = arg;
-                    cast->target = param->type;
-                    cast->ent.node_type = cast->target;
-
-                    list_replace(&cast->ent.entry, &arg->entry);
-
-                    arg = &cast->ent;
-                    continue;
-                }
-
-                ABORT_WITH_ERROR(&@3, "Argument with invalid type");
-            }
-
-            if (!list_ptr_is_head(&func->param_list, &param->block_entry))
-                ABORT_WITH_ERROR(&@3, "Not enough arguments supplied to function");
-
-            if (!list_ptr_is_head(&$3->head, &arg->entry) && !func->has_ellipsis)
-                ABORT_WITH_ERROR(&@3, "Too many arguments supplied to function");
-
-            for (;
-                !list_ptr_is_head(&$3->head, &arg->entry);
-                arg = list_next_entry(arg, entry)) {
-
-                if (bcc_ast_type_is_integer(arg->node_type)) {
-                    struct bae_cast *cast = create_bae_cast(ast);
-                    cast->expr = arg;
-                    cast->target = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
-                    cast->ent.node_type = cast->target;
-
-                    list_replace(&cast->ent.entry, &arg->entry);
-
-                    arg = &cast->ent;
-                    continue;
-                }
-            }
-        }
+        if (!func_params_check_and_cast(ast, func->ent.node_type, &$3->head, &errmsg))
+            ABORT_WITH_ERROR(&@3, errmsg);
 
         struct bae_func_call *call = create_bae_func_call(ast);
-        call->func = bcc_ast_find_function(ast, $1);
+        call->func = func;
         call->ent.node_type = call->func->ret_type;
 
         if ($3) {
@@ -573,11 +505,9 @@ unary_postfix_expression
             free($3);
         }
 
-        free($1);
-
         $$ = &call->ent;
     }
-    
+
 
 unary_expression
     : unary_postfix_expression
@@ -863,35 +793,65 @@ parameter
 
 parameter_list
     : parameter {
-        list_add_tail(&state->temp_param_list, &$1->block_entry);
+        struct temp_list *lst = malloc(sizeof(*lst));
+        temp_list_init(lst);
+        list_add_tail(&lst->head, &$1->block_entry);
+        $$.param_list = lst;
+        $$.has_elipsis = 0;
     }
     | parameter_list ',' parameter {
-        list_add_tail(&state->temp_param_list, &$3->block_entry);
+        struct temp_list *lst = $1.param_list;
+        list_add_tail(&lst->head, &$3->block_entry);
+        $$ = $1;
     }
 
 parameter_list_optional_ellipsis
-    : parameter_list { $$ = 0; }
-    | parameter_list ',' TOK_ELLIPSIS { $$ = 1; }
+    : parameter_list { $$ = $1; }
+    | parameter_list ',' TOK_ELLIPSIS {
+        $$.param_list = $1.param_list;
+        $$.has_elipsis = 1;
+    }
 
 parameter_list_or_empty
-    : %empty { $$ = 0; }
-    | parameter_list_optional_ellipsis
+    : %empty {
+        $$.param_list = NULL;
+        $$.has_elipsis = 0;
+    }
+    | parameter_list_optional_ellipsis {
+        $$ = $1;
+    }
 
 function_declaration
     : type_base TOK_IDENT '(' parameter_list_or_empty ')' {
         struct bae_function *func = create_bae_function(ast, $2);
+        struct temp_list *param_list = $4.param_list;
+        int has_elipsis = $4.has_elipsis;
+
         func->ret_type = $1;
-        func->has_ellipsis = $4;
+        func->has_ellipsis = has_elipsis;
         state->current_func = func;
 
-        if (!list_empty(&state->temp_param_list)) {
-            list_replace(&func->param_list, &state->temp_param_list);
-            list_head_init(&state->temp_param_list);
+        if (param_list && !list_empty(&param_list->head)) {
+            /* FIXME: We need some type checking in here */
+            list_replace(&func->param_list, &param_list->head);
+        } else {
+            /* Empty parameter list, treated as an elipsis */
+            func->has_ellipsis = 1;
         }
 
-        /* We add the incomplete function at this point to
-         * ensure the lexer will see it */
+        func->ent.node_type = func_type_from_parts(ast, &func->param_list, func->ret_type, func->has_ellipsis);
+
+        /* We add the function declaration at this point. We may also have a
+         * block for this funciton that will be parsed after this, and the
+         * `struct bae_function` will be updated with that information later.
+         *
+         * It is necessary to add the declaration to ensure things like
+         * recursion work. */
         bcc_ast_add_function(ast, func);
+
+        if (param_list)
+            free(param_list);
+
         $$ = &func->ent;
     }
 
@@ -919,282 +879,6 @@ basic_cc_file
     }
 
 %%
-
-static bool specifier_is_invalid(flags_t specifiers, int new_specifier)
-{
-    flags_t flags;
-
-    if (flag_test(&specifiers, new_specifier))
-        return true;
-
-    switch (new_specifier) {
-    case BCC_AST_TYPE_SPECIFIER_CHAR:
-        flags = F(BCC_AST_TYPE_SPECIFIER_SIGNED) | F(BCC_AST_TYPE_SPECIFIER_UNSIGNED);
-        return (specifiers & ~flags) != 0;
-
-    case BCC_AST_TYPE_SPECIFIER_VOID:
-        return specifiers != 0;
-
-    case BCC_AST_TYPE_SPECIFIER_SHORT:
-        flags = F(BCC_AST_TYPE_SPECIFIER_INT) | F(BCC_AST_TYPE_SPECIFIER_SIGNED) | F(BCC_AST_TYPE_SPECIFIER_UNSIGNED);
-        return (specifiers & ~flags) != 0;
-
-    case BCC_AST_TYPE_SPECIFIER_LONG:
-        flags = F(BCC_AST_TYPE_SPECIFIER_INT) | F(BCC_AST_TYPE_SPECIFIER_SIGNED) | F(BCC_AST_TYPE_SPECIFIER_UNSIGNED);
-        return (specifiers & ~flags) != 0;
-
-    case BCC_AST_TYPE_SPECIFIER_INT:
-        flags = F(BCC_AST_TYPE_SPECIFIER_SIGNED) | F(BCC_AST_TYPE_SPECIFIER_UNSIGNED) | F(BCC_AST_TYPE_SPECIFIER_LONG) | F(BCC_AST_TYPE_SPECIFIER_SHORT);
-        return (specifiers & ~flags) != 0;
-
-    case BCC_AST_TYPE_SPECIFIER_SIGNED:
-    case BCC_AST_TYPE_SPECIFIER_UNSIGNED:
-        flags = F(BCC_AST_TYPE_SPECIFIER_SIGNED) | F(BCC_AST_TYPE_SPECIFIER_UNSIGNED);
-        return (specifiers & flags) != 0;
-    }
-
-    return false;
-}
-
-static void specifier_add_to_type(struct bcc_ast_type *type, int specifier)
-{
-    switch (specifier) {
-    case BCC_AST_TYPE_SPECIFIER_VOID:
-        type->prim = BCC_AST_PRIM_VOID;
-        break;
-
-    case BCC_AST_TYPE_SPECIFIER_INT:
-        if (type->prim == BCC_AST_PRIM_MAX) {
-            type->size = bcc_ast_type_primitives[BCC_AST_PRIM_INT].size;
-            type->prim = BCC_AST_PRIM_INT;
-        }
-        break;
-
-    case BCC_AST_TYPE_SPECIFIER_LONG:
-        type->size = bcc_ast_type_primitives[BCC_AST_PRIM_LONG].size;
-        type->prim = BCC_AST_PRIM_LONG;
-        break;
-
-    case BCC_AST_TYPE_SPECIFIER_SHORT:
-        type->size = bcc_ast_type_primitives[BCC_AST_PRIM_SHORT].size;
-        type->prim = BCC_AST_PRIM_SHORT;
-        break;
-
-    case BCC_AST_TYPE_SPECIFIER_CHAR:
-        type->size = bcc_ast_type_primitives[BCC_AST_PRIM_CHAR].size;
-        type->prim = BCC_AST_PRIM_CHAR;
-        break;
-
-    case BCC_AST_TYPE_SPECIFIER_UNSIGNED:
-        type->is_unsigned = 1;
-        if (type->prim == BCC_AST_PRIM_MAX) {
-            type->size = bcc_ast_type_primitives[BCC_AST_PRIM_INT].size;
-            type->prim = BCC_AST_PRIM_INT;
-        }
-        break;
-
-    case BCC_AST_TYPE_SPECIFIER_SIGNED:
-        if (type->prim == BCC_AST_PRIM_MAX) {
-            type->size = bcc_ast_type_primitives[BCC_AST_PRIM_INT].size;
-            type->prim = BCC_AST_PRIM_INT;
-        }
-        break;
-    }
-}
-
-static struct bcc_ast_entry *create_bin_ptr_op(struct bcc_ast *ast, enum bcc_ast_binary_op op, struct bcc_ast_entry *ptr, struct bcc_ast_entry *val, int ptr_is_first)
-{
-    size_t ptr_size = ptr->node_type->inner->size;
-
-    if (val->node_type->size < ptr_size) {
-        struct bae_cast *cast = create_bae_cast(ast);
-        cast->expr = val;
-        cast->target = bcc_ast_type_primitives + BCC_AST_PRIM_LONG;
-        cast->ent.node_type = cast->target;
-
-        val = &cast->ent;
-    }
-
-    struct bae_binary_op *bin_op = create_bae_binary_op(ast, op);
-    bin_op->operand_size = ptr_size;
-    bin_op->ent.node_type = ptr->node_type;
-
-    if (ptr_is_first) {
-        bin_op->left = ptr;
-        bin_op->right = val;
-    } else {
-        bin_op->left = val;
-        bin_op->right = ptr;
-    }
-
-    return &bin_op->ent;
-}
-
-static struct bcc_ast_entry *create_ptr_bin_from_components(struct bcc_ast *ast, enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right)
-{
-    struct bae_binary_op *bin_op;
-
-    /* Verify that one side is a pointer, and one side is an integer */
-    switch (op) {
-    case BCC_AST_BINARY_OP_PLUS:
-        if (bcc_ast_type_is_pointer(left->node_type) && bcc_ast_type_is_integer(right->node_type)) {
-            return create_bin_ptr_op(ast, BCC_AST_BINARY_OP_ADDR_ADD_INDEX, left, right, 1);
-        } else if (bcc_ast_type_is_pointer(right->node_type) && bcc_ast_type_is_integer(left->node_type)) {
-            return create_bin_ptr_op(ast, BCC_AST_BINARY_OP_ADDR_ADD_INDEX, left, right, 0);
-        } else {
-            return NULL;
-        }
-        break;
-
-    case BCC_AST_BINARY_OP_MINUS:
-        if (bcc_ast_type_is_pointer(left->node_type) && bcc_ast_type_is_integer(right->node_type)) {
-            return create_bin_ptr_op(ast, BCC_AST_BINARY_OP_ADDR_SUB_INDEX, left, right, 1);
-        } else if (bcc_ast_type_is_pointer(right->node_type) && bcc_ast_type_is_integer(left->node_type)) {
-            return create_bin_ptr_op(ast, BCC_AST_BINARY_OP_ADDR_SUB_INDEX, left, right, 0);
-        } else if (bcc_ast_type_is_pointer(right->node_type) && bcc_ast_type_is_pointer(left->node_type)) {
-            struct bae_binary_op *bin_op = create_bae_binary_op(ast, BCC_AST_BINARY_OP_ADDR_SUB);
-            bin_op->operand_size = bae_size(right);
-            bin_op->left = left;
-            bin_op->right = right;
-            bin_op->ent.node_type = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
-            return &bin_op->ent;
-        } else {
-            return NULL;
-        }
-        break;
-
-    case BCC_AST_BINARY_OP_GREATER_THAN:
-    case BCC_AST_BINARY_OP_GREATER_THAN_EQUAL:
-    case BCC_AST_BINARY_OP_LESS_THAN:
-    case BCC_AST_BINARY_OP_LESS_THAN_EQUAL:
-    case BCC_AST_BINARY_OP_NOT_EQUAL:
-    case BCC_AST_BINARY_OP_DOUBLEEQUAL:
-        bin_op = create_bae_binary_op(ast, op);
-
-        bin_op->left = left;
-        bin_op->right = right;
-        bin_op->ent.node_type = bcc_ast_type_primitives + BCC_AST_PRIM_INT;
-        return &bin_op->ent;
-
-    default:
-        return NULL;
-    }
-}
-
-static struct bcc_ast_entry *create_bin_from_components(struct bcc_ast *ast, enum bcc_ast_binary_op op, struct bcc_ast_entry *left, struct bcc_ast_entry *right)
-{
-    if (bcc_ast_type_is_pointer(left->node_type) || bcc_ast_type_is_pointer(right->node_type))
-        return create_ptr_bin_from_components(ast, op, left, right);
-
-    if (bcc_ast_type_is_integer(left->node_type) && bcc_ast_type_is_integer(right->node_type)) {
-        size_t size_left = bae_size(left);
-        size_t size_right = bae_size(right);
-
-        /* Also check and handle unsigned casting */
-        if (size_left < size_right) {
-            struct bae_cast *cast = create_bae_cast(ast);
-            cast->expr = left;
-            cast->target = right->node_type;
-            cast->ent.node_type = cast->target;
-
-            left = &cast->ent;
-        } else if (size_right < size_left) {
-            struct bae_cast *cast = create_bae_cast(ast);
-            cast->expr = right;
-            cast->target = left->node_type;
-            cast->ent.node_type = cast->target;
-
-            right = &cast->ent;
-        }
-    }
-
-    struct bae_binary_op *bin_op = create_bae_binary_op(ast, op);
-
-    bin_op->left = left;
-    bin_op->right = right;
-    bin_op->ent.node_type = bin_op->left->node_type;
-    return &bin_op->ent;
-}
-
-static struct bcc_ast_entry *create_assignment(struct bcc_ast *ast, struct bcc_parser_state *state, struct bcc_ast_entry *lvalue, struct bcc_ast_entry *rvalue, enum bcc_ast_binary_op bin_op)
-{
-    struct bcc_ast_variable *temp_var = NULL;
-    struct bcc_ast_entry *optional_expr = NULL;
-
-    if (bin_op != BCC_AST_BINARY_OP_MAX) {
-        struct bae_var *v;
-        struct bae_var *old;
-
-        switch (lvalue->type) {
-        case BCC_AST_NODE_VAR:
-            old = container_of(lvalue, struct bae_var, ent);
-            v = create_bae_var(ast);
-            v->var = old->var;
-            v->ent.node_type = old->ent.node_type;
-
-            rvalue = create_bin_from_components(ast, bin_op, &v->ent, rvalue);
-            if (!rvalue)
-                return NULL;
-
-            break;
-
-        default:
-            printf("Not compatible lvalue: %d\n", lvalue->type);
-            return NULL;
-        }
-    /*
-        struct bae_assign *a = create_bae_assign();
-        struct bae_var *v = create_bae_var();
-        temp_var = bae_function_get_temp_var(state->current_func);
-
-        v->var = temp_var;
-        v->ent.node_type = lvalue->node_type;
-
-        a->rvalue = lvalue;
-        a->lvalue = &v->ent;
-        a->ent.node_type = lvalue->node_type;
-
-        optional_expr = &a->ent;
-
-        v = create_bae_var();
-        v->var = temp_var;
-        v->ent.node_type = lvalue->node_type;
-
-        rvalue = create_bin_from_components(bin_op, &v->ent, rvalue);
-
-        */
-
-/*
-        v = create_bae_var();
-        v->var = temp_var;
-        v->ent.node_type = lvalue->node_type;
-
-        lvalue = &v->ent;
-        */
-    }
-
-    if (!bcc_ast_type_lvalue_identical_to_rvalue(lvalue->node_type, rvalue->node_type)) {
-        if (!bcc_ast_type_implicit_cast_exists(rvalue->node_type, lvalue->node_type))
-            return false;
-
-        struct bae_cast *cast = create_bae_cast(ast);
-        cast->expr = rvalue;
-        cast->target = lvalue->node_type;
-
-        rvalue = &cast->ent;
-    }
-
-    struct bae_assign *assign = create_bae_assign(ast);
-    assign->optional_expr = optional_expr;
-    assign->lvalue = lvalue;
-    assign->rvalue = rvalue;
-    assign->ent.node_type = assign->lvalue->node_type;
-
-    if (temp_var)
-        bae_function_put_temp_var(state->current_func, temp_var);
-
-    return &assign->ent;
-}
 
 static void display_invalid_token(YYLTYPE *loc, yyscan_t scanner)
 {
